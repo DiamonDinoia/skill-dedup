@@ -1,0 +1,145 @@
+{
+  "mutated": false,
+  "pairs": "~/.hermes/cache/scratch/dedup-wt/shootout/eval/pairs/pairs.jsonl",
+  "cores": [
+    16,
+    17,
+    18,
+    19,
+    20,
+    21
+  ],
+  "revisions": {
+    "nomic-ai/CodeRankEmbed": "3c4b60807d71f79b43f3c4363786d9493691f8b1",
+    "jinaai/jina-embeddings-v2-base-code": "516f4baf13dec4ddddda8631e019b5737c8bc250",
+    "codesage/codesage-small-v2": "4844c2f24b25e181aa43ca058cc73dd2622565c1",
+    "Qwen/Qwen3-Embedding-0.6B": "97b0c614be4d77ee51c0cef4e5f07c00f9eb65b3",
+    "BAAI/bge-base-en-v1.5": "a5beb1e3e68b9ab74eb54cfd186867f64f240e1a",
+    "nomic-ai/nomic-embed-text-v1.5": "e9b6763023c676ca8431644204f50c2b100d9aab"
+  },
+  "classes": {
+    "code": {
+      "rows": [
+        {
+          "name": "lexical (baseline)",
+          "auc": 0.8066,
+          "dev_threshold": 0.1213235294117647,
+          "block_threshold": 0.12132352941176472,
+          "sem_recall": 0.9655,
+          "block_precision": 0.7333,
+          "block_recall": 0.9706,
+          "hard_neg_max": 0.5366,
+          "load_s": null,
+          "ms_per_chunk": null,
+          "ms_per_chunk_trunc512": null,
+          "rss_mb": null,
+          "weights_mb": null
+        },
+        {
+          "name": "CodeRankEmbed",
+          "auc": 0.8993,
+          "dev_threshold": 0.4422847628593445,
+          "block_threshold": 0.489986538887024,
+          "sem_recall": 0.8276,
+          "block_precision": 0.7778,
+          "block_recall": 0.8235,
+          "hard_neg_max": 0.6718,
+          "load_s": 7.19,
+          "ms_per_chunk": 697.45,
+          "ms_per_chunk_trunc512": 828.54,
+          "rss_mb": 2346.0,
+          "weights_mb": 2191.8,
+          "max_seq_length": 8192,
+          "mean_tokens": 173.3
+        },
+        {
+          "name": "jina-embeddings-v2-base-code",
+          "auc": 0.888,
+          "dev_threshold": 0.5949349375376021,
+          "block_threshold": 0.5949349375376022,
+          "sem_recall": 0.7931,
+          "block_precision": 0.7179,
+          "block_recall": 0.8235,
+          "hard_neg_max": 0.7667,
+          "load_s": 1.61,
+          "ms_per_chunk": 1162.83,
+          "ms_per_chunk_trunc512": 969.09,
+          "rss_mb": 2713.0,
+          "weights_mb": 1288.2,
+          "max_seq_length": null,
+          "mean_tokens": 153.3
+        },
+        {
+          "name": "codesage-small-v2 (UNRUN: ImportError: cannot import name 'Conv1D' from 'transformers.modeling_utils')"
+        }
+      ],
+      "pick": null,
+      "beats_lexical": false
+    },
+    "text": {
+      "rows": [
+        {
+          "name": "lexical (baseline)",
+          "auc": 0.9588,
+          "dev_threshold": 0.01818181818181818,
+          "block_threshold": 0.01941747572815534,
+          "sem_recall": 0.7895,
+          "block_precision": 1.0,
+          "block_recall": 0.8077,
+          "hard_neg_max": 0.0127,
+          "load_s": null,
+          "ms_per_chunk": null,
+          "ms_per_chunk_trunc512": null,
+          "rss_mb": null,
+          "weights_mb": null
+        },
+        {
+          "name": "Qwen3-Embedding-0.6B (UNRUN: over-limit: ms/chunk > 200 (killed at 693 s))",
+          "killed_at_s": 693
+        },
+        {
+          "name": "bge-base-en-v1.5",
+          "auc": 1.0,
+          "dev_threshold": 0.8064655181434274,
+          "block_threshold": 0.8201913417129902,
+          "sem_recall": 0.9474,
+          "block_precision": 1.0,
+          "block_recall": 0.9231,
+          "hard_neg_max": 0.7555,
+          "load_s": 1.31,
+          "ms_per_chunk": 309.26,
+          "ms_per_chunk_trunc512": 216.46,
+          "rss_mb": 935.0,
+          "weights_mb": 437.1,
+          "max_seq_length": null,
+          "mean_tokens": 69.1
+        },
+        {
+          "name": "nomic-embed-text-v1.5",
+          "auc": 1.0,
+          "dev_threshold": 0.8436644774790165,
+          "block_threshold": 0.8436644774790166,
+          "sem_recall": 0.9474,
+          "block_precision": 1.0,
+          "block_recall": 0.9615,
+          "hard_neg_max": 0.8149,
+          "load_s": 1.22,
+          "ms_per_chunk": 289.18,
+          "ms_per_chunk_trunc512": 290.16,
+          "rss_mb": 1853.0,
+          "weights_mb": 1096.3,
+          "max_seq_length": null,
+          "mean_tokens": 69.1
+        }
+      ],
+      "pick": null,
+      "beats_lexical": false
+    }
+  },
+  "notes": [
+    "Rows recomposed from repeated --one child invocations on cores 16-21 after the run-2 results file was clobbered by a mutate check; inputs and thread env are identical to run 2.",
+    "CodeRankEmbed needed einops and transformers<5 added to the eval extra; its remote code also reads HF metadata, so HF_HUB_OFFLINE=1 alone fails for it.",
+    "Qwen3-Embedding-0.6B killed by the per-child wall budget (load 600 s + 2 x 200 ms x item count).",
+    "codesage-small-v2 UNRUN: its remote code imports Conv1D from transformers.modeling_utils, removed before Qwen3's floor of 4.51; one env cannot load both."
+  ]
+}

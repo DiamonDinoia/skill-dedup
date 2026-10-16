@@ -1,0 +1,59 @@
+#!/usr/bin/env python3
+"""Print duplicate findings of a repo as text before a review run.
+
+Exit 3 when any finding has block=true, 0 otherwise, 2 on error.
+Skips nothing itself: the caller decides (see --no-dedup in hermes-adversarial-review).
+"""
+import argparse
+import json
+import os
+import subprocess
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+from dedup_contract import validate
+
+TIMEOUT = 570
+
+
+def parse(out):
+    """Parse and validate dedup-check output via the shared contract:
+    anything outside the contract raises ValueError and prints as one error, exit 2.
+    stdout is bytes; UnicodeDecodeError is a ValueError, same error path."""
+    return validate(json.loads(out.decode()))
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("--repo", default=".")
+    a = ap.parse_args()
+    cmd = [os.environ.get("DEDUP_CHECK", "dedup-check"), "--json"]
+    try:
+        p = subprocess.run(cmd, cwd=a.repo, capture_output=True, timeout=TIMEOUT)
+    except (OSError, subprocess.TimeoutExpired) as err:
+        print(f"hermes-prereview: dedup-check failed: {err}", file=sys.stderr)
+        return 2
+    if p.returncode != 0:
+        # first non-empty line only, capped so a noisy dedup-check stays one line
+        err = (p.stderr.decode(errors="replace").strip().splitlines() or [""])[0][:200]
+        print(f"hermes-prereview: dedup-check exited {p.returncode}: {err}", file=sys.stderr)
+        return 2
+    try:
+        data = parse(p.stdout)
+    except ValueError as e:
+        print(f"hermes-prereview: dedup-check output rejected: {e}", file=sys.stderr)
+        return 2
+    findings = data["findings"] or []
+    print(f"base: {data.get('base')}")
+    if not findings:
+        print("no duplicates found")
+    for f in findings:
+        n, e = f["new"], f["existing"]
+        tag = " [block]" if f["block"] else ""  # validated bool
+        print(f"{n['path']}:{n['start']}-{n['end']} ~ "
+              f"{e['path']}:{e['start']}-{e['end']} ({n['kind']}, {f.get('match')}, {f.get('score')}){tag}")
+    return 3 if any(f["block"] for f in findings) else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

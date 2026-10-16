@@ -1,0 +1,10 @@
+{
+  "name": "dedup",
+  "description": "Detect duplicate code and text in a change set with dedup-check.",
+  "version": "0.1.0",
+  "author": { "name": "Marco Barbone", "url": "https://github.com/DiamonDinoia" },
+  "license": "MIT",
+  "homepage": "https://github.com/DiamonDinoia/skill-dedup",
+  "repository": "https://github.com/DiamonDinoia/skill-dedup",
+  "keywords": ["skills", "duplicates", "dedup", "code-review", "hooks"]
+}

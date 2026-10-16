@@ -1,0 +1,15 @@
+{
+  "name": "dedup",
+  "description": "Duplicate detection skill and Stop hooks for coding agents.",
+  "owner": {
+    "name": "Marco Barbone"
+  },
+  "plugins": [
+    {
+      "name": "dedup",
+      "source": "./",
+      "description": "Detect duplicate code and text in a change set with dedup-check.",
+      "category": "productivity"
+    }
+  ]
+}

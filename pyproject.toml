@@ -1,0 +1,50 @@
+[project]
+name = "skill-dedup"
+version = "0.1.0"
+description = "Detect duplicate skills."
+requires-python = ">=3.11"
+license = "MIT"
+dependencies = [
+    "numpy",
+    "datasketch",
+    "fastembed",
+]
+
+[project.optional-dependencies]
+eval = [
+    "sentence-transformers",
+    "torch",
+    "einops",  # required by nomic remote code (CodeRankEmbed)
+    "transformers>=4.51,<5",  # nomic and codesage remote code needs v4
+]
+
+[project.scripts]
+dedup-check = "dedup.cli:main"
+
+[project.urls]
+Repository = "https://github.com/DiamonDinoia/skill-dedup"
+
+[dependency-groups]
+dev = [
+    "pytest",
+]
+
+[tool.pytest.ini_options]
+markers = [
+    "model: needs the real embedding model (set DEDUP_TEST_MODEL)",
+]
+
+[tool.uv.sources]
+torch = { index = "pytorch-cpu" }
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["dedup"]

@@ -1,0 +1,15 @@
+{
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 /ABS/PATH/TO/skill-dedup/hooks/stop_hook.py",
+            "timeout": 600
+          }
+        ]
+      }
+    ]
+  }
+}

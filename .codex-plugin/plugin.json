@@ -1,0 +1,18 @@
+{
+  "name": "dedup",
+  "description": "Detect duplicate code and text in a change set with dedup-check.",
+  "version": "0.1.0",
+  "author": { "name": "Marco Barbone", "url": "https://github.com/DiamonDinoia" },
+  "homepage": "https://github.com/DiamonDinoia/skill-dedup",
+  "repository": "https://github.com/DiamonDinoia/skill-dedup",
+  "license": "MIT",
+  "keywords": ["skills", "duplicates", "dedup", "code-review", "hooks"],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "dedup",
+    "shortDescription": "Duplicate detection in a change set",
+    "longDescription": "Runs dedup-check on the change set of a git worktree and reports duplicate code and text found at the base commit: exact, lexical and semantic matches, with block or advise results.",
+    "category": "Productivity",
+    "capabilities": ["Instructions"]
+  }
+}
