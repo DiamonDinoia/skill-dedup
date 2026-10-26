@@ -4,3 +4,4 @@ __pycache__/
 .pytest_cache/
 eval/cache/
 .dedup-cache/
+eval/results.json

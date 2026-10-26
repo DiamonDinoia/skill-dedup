@@ -97,7 +97,7 @@ dedup-check [--base REF] [--json] [--repo PATH]
 Plain output is one line for each result:
 
 ```
-dedup/check.py:10-49 ~ dedup/cli.py:30-69 lexical 0.970 BLOCK
+dedup/lexical.py:49-88 ~ dedup/cli.py:30-69 lexical 0.970 BLOCK
 ```
 
 The JSON object has the keys base and findings. Each finding has the new
@@ -144,7 +144,8 @@ Text chunks use bge-base-en-v1.5: test recall 0.95 on paraphrase pairs,
 against 0.79 for the lexical matcher. No code embedder ships: on the pair set
 a code embedder added 0.06 refactored recall at a union precision of 0.71
 ([eval/decisions.md](eval/decisions.md) has the numbers and the command that prints them).
-The full shoot-out is in eval/results.md.
+The full shoot-out is in eval/results.md. `uv run --extra eval python eval/run.py`
+regenerates eval/results.json and eval/results.md.
 
 ## Known limits
 
