@@ -102,12 +102,18 @@ def backup(path: Path) -> Path:
     return out
 
 
-def write_atomic(path: Path, data: dict) -> None:
+def render(data: dict) -> bytes:
+    # ensure_ascii=False: the user's own characters must come back as they
+    # were, not as \uXXXX escapes.
+    return (json.dumps(data, indent=2, ensure_ascii=False) + "\n").encode("utf-8")
+
+
+def write_atomic(path: Path, content: bytes) -> None:
     mode = stat.S_IMODE(path.stat().st_mode) if path.exists() else 0o644
     fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=path.name + ".")
     try:
-        with os.fdopen(fd, "w") as f:
-            f.write(json.dumps(data, indent=2) + "\n")
+        with os.fdopen(fd, "wb") as f:
+            f.write(content)
             f.flush()
             os.fsync(f.fileno())
         os.chmod(tmp, mode)
@@ -157,9 +163,14 @@ def main() -> int:
     for p, data in built:
         try:
             p.parent.mkdir(parents=True, exist_ok=True)
+            content = render(data)
+            if p.exists() and p.read_bytes() == content:
+                # No change: a rewrite only churns mtime and backups.
+                print(f"SKIP {p}")
+                continue
             if p.exists():
                 backups.append(str(backup(p)))
-            write_atomic(p, data)
+            write_atomic(p, content)
             updated.append(str(p))
         except OSError as err:
             msg = f"apply_hooks: {err}"

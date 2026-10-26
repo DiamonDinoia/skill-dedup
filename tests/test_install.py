@@ -261,12 +261,41 @@ def test_two_runs_in_one_second_keep_both_backups(tmp_path):
     claude_dir.mkdir()
     settings = claude_dir / "settings.json"
     settings.write_text(json.dumps({"theme": "dark"}))
-    for _ in range(2):
-        p, _ = run_install(tmp_path, "--no-model", "--apply")
-        assert p.returncode == 0, p.stderr
+    p, _ = run_install(tmp_path, "--no-model", "--apply")
+    assert p.returncode == 0, p.stderr
+    # A real change, still inside the same second: the second write must not
+    # overwrite the first backup.
+    settings.write_text(json.dumps({**json.loads(settings.read_text()),
+                                    "theme": "light"}))
+    p, _ = run_install(tmp_path, "--no-model", "--apply")
+    assert p.returncode == 0, p.stderr
     backups = list(claude_dir.glob("settings.json.bak.*"))
     assert len(backups) == 2
     assert len({b.name for b in backups}) == 2
+
+
+def test_noop_apply_skips_the_write_and_keeps_user_bytes(tmp_path):
+    settings = tmp_path / ".claude" / "settings.json"
+    settings.parent.mkdir()
+    settings.write_text(json.dumps({"note": "em dash — and ‘quotes’"}))
+    hooks_file = tmp_path / ".codex" / "hooks.json"
+    hooks_file.parent.mkdir()
+    hooks_file.write_text(json.dumps({"note": "keep me"}))
+    p, _ = run_install(tmp_path, "--no-model", "--apply")
+    assert p.returncode == 0, p.stderr
+    first = {f: f.read_bytes() for f in (settings, hooks_file)}
+    # A merge writes the user's characters back as bytes, not \uXXXX escapes.
+    assert "—".encode() in first[settings]
+    assert "\\u2014" not in first[settings].decode()
+    p, _ = run_install(tmp_path, "--no-model", "--apply")
+    assert p.returncode == 0, p.stderr
+    for f in (settings, hooks_file):
+        assert f"SKIP {f.resolve()}" in p.stdout
+        assert f.read_bytes() == first[f]  # byte-identical on repeat runs
+    # The no-op run wrote nothing, so it made no new backups either.
+    baks = [b for d in (".claude", ".codex")
+            for b in (tmp_path / d).glob("*.bak.*")]
+    assert len(baks) == 2  # one per file, from the first run only
 
 
 def test_symlinked_settings_target_is_updated_and_link_stays(tmp_path):
