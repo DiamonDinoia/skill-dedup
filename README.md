@@ -152,7 +152,7 @@ regenerates eval/results.json and eval/results.md.
 - The matchers do not catch most refactored code with a new structure and not
   many shared tokens: only 1 of 17 test refactors has Jaccard 0.40 or more.
 - A cold run keeps all eligible base blobs in memory at once
-  (dedup/cli.py:242, `_cat_blobs`).
+  (dedup/cli.py:254, `_cat_blobs`).
 - The command captures the full diff before size filtering: a 49 MB rewrite
   peaked at 335 MB RSS.
 - All string and number literals tokenize to LIT, so chunks that differ only
