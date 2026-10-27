@@ -160,7 +160,8 @@ regenerates eval/results.json and eval/results.md.
 - The brace chunker can glue a preceding declaration such as `int value = 0;`
   onto the next function.
 - Line counts differ from git on U+2028 and form feed.
-- A corrupt but readable .npz cache entry raises instead of being recomputed.
+- A corrupt but readable .npz cache entry is ignored and the result is
+  recomputed (dedup/cli.py:413).
 - The calibrated semantic block threshold (dedup/embed.py:19) is unused:
   semantic findings never block.
 - The command skips chunks below 5 non-blank code lines or 20 words.
