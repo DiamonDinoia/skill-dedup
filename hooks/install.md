@@ -1,8 +1,9 @@
 # Install the optional dedup Stop hooks and the Hermes pre-review step by hand
 
 scripts/install.sh automates these steps: it installs the CLI, downloads the
-model, copies the hook scripts out of the clone, and merges the harness
-config with --apply. Use the steps below for a fully manual setup.
+model, copies the hook scripts out of the clone, and patches
+hermes-adversarial-review with --apply. It merges the harness config only with
+`--stop-hook --apply`. Use the steps below for a fully manual setup.
 
 1. Replace /ABS/PATH/TO in each snippet with the real path of this repo.
 2. Claude Code: merge the Stop entry of claude-settings.json into ~/.claude/settings.json under "hooks". Keep existing entries.

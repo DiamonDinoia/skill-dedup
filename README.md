@@ -31,26 +31,30 @@ The script does these steps:
    $XDG_CACHE_HOME/skill-dedup/models, ~/.cache by default. Use
    `install.sh --no-model` to skip the download. Run
    `dedup-check --fetch-model` after the install to get the model.
-4. Print the Stop hook JSON for Claude Code and Codex, and the Hermes step.
-   The script does not edit a harness file. The blocks are the output of
-   `scripts/apply_hooks.py --print`, so each printed command is the same
-   string that --apply writes into that harness file. The second block has
-   `--harness codex` on the command: Codex drops Stop output with
-   hookSpecificOutput, so the hook prints the Codex shape only with that
-   flag.
-5. With --apply, back up each harness file first, then merge the Stop hook.
-   The backup has the same file name plus `.bak.` and a UTC timestamp. The
-   targets are ~/.claude/settings.json and ~/.codex/hooks.json. A symlinked
-   file is resolved first: the file behind the link is updated and the link
-   stays. The merge keeps the other keys and the hooks of other tools, and
-   is idempotent. A new harness file gets mode 0644, an existing file keeps
+4. Print the Hermes step. The script does not edit a harness file.
+5. With --apply, patch ~/.local/bin/hermes-adversarial-review with
+   hooks/hermes-adversarial-review.patch, when that file exists and the
+   patch applies. The script reports an applied patch, and an applied
+   patch is not applied twice. A script that carries the previous patch
+   (hooks/hermes-adversarial-review.v0.patch) is upgraded: the script
+   reverses the old patch and applies the new one. If the patch does not
+   apply, the script prints one skip line and leaves the file alone.
+6. With --stop-hook, print the Stop hook JSON for Claude Code and Codex. The
+   Stop hook is optional (see "Run once before a review"). The blocks are
+   the output of `scripts/apply_hooks.py --print`, so each printed command
+   is the same string that `--stop-hook --apply` writes into that harness
+   file. The second block has `--harness codex` on the command: Codex drops
+   Stop output with hookSpecificOutput, so the hook prints the Codex shape
+   only with that flag. With `--stop-hook --apply`, back up each harness
+   file first, then merge the Stop hook. The backup has the same file name
+   plus `.bak.` and a UTC timestamp. The targets are
+   ~/.claude/settings.json and ~/.codex/hooks.json. A symlinked file is
+   resolved first: the file behind the link is updated and the link stays.
+   The merge keeps the other keys and the hooks of other tools, and is
+   idempotent. A new harness file gets mode 0644, an existing file keeps
    its mode. When a write of a later file fails, one stderr line names the
-   updated files and their backups. For Hermes the script applies
-   hooks/hermes-adversarial-review.patch to
-   ~/.local/bin/hermes-adversarial-review when that file is available and
-   `patch --dry-run` gives no error. If the patch is already applied, the
-   script says so. If not, the script prints one skip line. Run
-   `install.sh --help` for the flag list.
+   updated files and their backups. Run `install.sh --help` for the flag
+   list.
 
 Manual install. From the clone root run `uv tool install .`, or make the
 venv and use pip by hand. The pip path is CPU only.
@@ -108,7 +112,7 @@ candidate and treats `[block]` items as high severity.
 
 The Stop hook is optional and not recommended on big repos. It runs the check
 after every agent turn. One run on a 21,873-file repo takes longer than the
-570 s timeout on CPU. Install the Stop hook only on small repos, or when the
+570 s timeout on CPU. Install it only on small repos, with `install.sh --stop-hook`, or when the
 `gpu` extra is in use.
 
 ## Uninstall

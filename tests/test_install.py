@@ -113,7 +113,7 @@ def run_apply_without_python3(home: Path):
     bindir.mkdir(exist_ok=True)
     env = base_env(home)
     env["PATH"] = str(bindir)
-    return subprocess.run(["/bin/bash", str(INSTALL), "--apply", "--no-model"],
+    return subprocess.run(["/bin/bash", str(INSTALL), "--apply", "--stop-hook", "--no-model"],
                           capture_output=True, text=True, env=env)
 
 
@@ -140,7 +140,8 @@ def test_no_apply_installs_with_uv_and_writes_no_harness_files(tmp_path):
     hook_dir = tmp_path / ".local/share/skill-dedup/hooks"
     for name in ("stop_hook.py", "dedup_contract.py", "hermes-prereview"):
         assert (hook_dir / name).exists()
-    assert str(hook_dir / "stop_hook.py") in p.stdout  # printed hook JSON
+    # the Stop hook is opt-in: no JSON printed without --stop-hook
+    assert "stop_hook.py" not in p.stdout and "hookSpecificOutput" not in p.stdout
     # hermes-adversarial-review runs "hermes-prereview" by bare name from the same bin dir
     link = tmp_path / ".local/bin/hermes-prereview"
     assert link.is_symlink() and link.resolve() == (hook_dir / "hermes-prereview").resolve()
@@ -173,14 +174,56 @@ def test_broken_nvidia_smi_installs_the_cpu_extra(tmp_path):
     assert install_spec(uv_args) == str(ROOT) and "--excludes" not in uv_args
 
 
-def test_installed_review_patch_is_detected_as_already_applied(tmp_path):
-    review = tmp_path / ".local/bin/hermes-adversarial-review"
-    review.parent.mkdir(parents=True)
+def make_review(home: Path, patch_name: str | None) -> Path:
+    """The fixture review script in a temp HOME, patched with hooks/<patch_name> or unpatched."""
+    review = home / ".local/bin/hermes-adversarial-review"
+    review.parent.mkdir(parents=True, exist_ok=True)
     review.write_text((ROOT / "tests/fixtures/review-script").read_text())
-    for expect in ("applied hermes-adversarial-review.patch", "already applied"):
-        p, _ = run_install(tmp_path, "--no-model", "--apply")
-        assert p.returncode == 0, p.stderr
-        assert expect in p.stderr
+    if patch_name:
+        subprocess.run(["patch", "-p1", "-d", str(review.parent), "-i", str(ROOT / "hooks" / patch_name)],
+                       check=True, capture_output=True)
+    return review
+
+
+def test_apply_patches_hermes_only_and_is_idempotent(tmp_path):
+    review = make_review(tmp_path, None)
+    p, _ = run_install(tmp_path, "--no-model", "--apply")
+    assert p.returncode == 0 and "applied hermes-adversarial-review.patch" in p.stderr
+    patched = review.read_text()
+    assert "dedup_section" in patched
+    assert not (tmp_path / ".claude").exists() and not (tmp_path / ".codex").exists()
+    p, _ = run_install(tmp_path, "--no-model", "--apply")
+    assert p.returncode == 0 and "already applied" in p.stderr
+    assert review.read_text() == patched
+
+
+def test_apply_upgrades_a_script_with_the_previous_patch(tmp_path):
+    review = make_review(tmp_path, "hermes-adversarial-review.v0.patch")
+    assert "sys.exit(4)" in review.read_text() and "dedup_section" not in review.read_text()
+    p, _ = run_install(tmp_path, "--no-model", "--apply")
+    assert p.returncode == 0, p.stderr
+    assert "upgraded hermes-adversarial-review.patch" in p.stderr
+    new = review.read_text()
+    assert "dedup_section" in new and "sys.exit(4)" not in new
+    # same bytes as a direct application of the new patch to the unpatched script
+    direct = make_review(tmp_path / "ref", "hermes-adversarial-review.patch")
+    assert new == direct.read_text()
+    p, _ = run_install(tmp_path, "--no-model", "--apply")
+    assert "already applied" in p.stderr
+
+
+def test_unknown_review_script_is_skipped_untouched(tmp_path):
+    review = make_review(tmp_path, None)
+    review.write_text("#!/bin/sh\necho unrelated\n")
+    p, _ = run_install(tmp_path, "--no-model", "--apply")
+    assert p.returncode == 0 and "skip hermes patch" in p.stderr
+    assert review.read_text() == "#!/bin/sh\necho unrelated\n"
+
+
+def test_stop_hook_flag_prints_the_hook_config(tmp_path):
+    p, _ = run_install(tmp_path, "--no-model", "--stop-hook")
+    assert p.returncode == 0 and "stop_hook.py" in p.stdout
+    assert not (tmp_path / ".claude").exists()
 
 
 def test_apply_twice_is_idempotent_and_backs_up(tmp_path):
@@ -193,7 +236,7 @@ def test_apply_twice_is_idempotent_and_backs_up(tmp_path):
     hooks_file = codex_dir / "hooks.json"
     hooks_file.write_text(json.dumps({"note": "keep me"}))
     for _ in range(2):
-        p, _ = run_install(tmp_path, "--no-model", "--apply")
+        p, _ = run_install(tmp_path, "--no-model", "--stop-hook", "--apply")
         assert p.returncode == 0, p.stderr
         # The hermes review script is absent in the temp HOME.
         assert "skip hermes patch" in p.stderr
@@ -254,7 +297,7 @@ def test_other_tools_stop_hook_is_kept(tmp_path):
         "hooks": {"Stop": [other]},
     }))
     for _ in range(2):
-        p, _ = run_install(tmp_path, "--no-model", "--apply")
+        p, _ = run_install(tmp_path, "--no-model", "--stop-hook", "--apply")
         assert p.returncode == 0, p.stderr
     data = json.loads(settings.read_text())
     stop = data["hooks"]["Stop"]
@@ -278,7 +321,7 @@ def test_hook_path_with_space_is_quoted(tmp_path):
     env = base_env(env_home)
     env["XDG_DATA_HOME"] = str(data_home)
     env["PATH"] = f"{bindir}{os.pathsep}{os.environ['PATH']}"
-    p = subprocess.run(["bash", str(INSTALL), "--no-model", "--apply"],
+    p = subprocess.run(["bash", str(INSTALL), "--no-model", "--stop-hook", "--apply"],
                        capture_output=True, text=True, env=env)
     assert p.returncode == 0, p.stderr
     hook = data_home / "skill-dedup/hooks/stop_hook.py"
@@ -302,7 +345,7 @@ def test_invalid_codex_json_leaves_claude_untouched(tmp_path):
     codex_dir = tmp_path / ".codex"
     codex_dir.mkdir()
     (codex_dir / "hooks.json").write_text("{not json")
-    p, _ = run_install(tmp_path, "--no-model", "--apply")
+    p, _ = run_install(tmp_path, "--no-model", "--stop-hook", "--apply")
     assert p.returncode != 0
     assert "apply_hooks:" in p.stderr and "Traceback" not in p.stderr
     # Claude settings were parsed ok but never written nor backed up.
@@ -315,13 +358,13 @@ def test_two_runs_in_one_second_keep_both_backups(tmp_path):
     claude_dir.mkdir()
     settings = claude_dir / "settings.json"
     settings.write_text(json.dumps({"theme": "dark"}))
-    p, _ = run_install(tmp_path, "--no-model", "--apply")
+    p, _ = run_install(tmp_path, "--no-model", "--stop-hook", "--apply")
     assert p.returncode == 0, p.stderr
     # A real change, still inside the same second: the second write must not
     # overwrite the first backup.
     settings.write_text(json.dumps({**json.loads(settings.read_text()),
                                     "theme": "light"}))
-    p, _ = run_install(tmp_path, "--no-model", "--apply")
+    p, _ = run_install(tmp_path, "--no-model", "--stop-hook", "--apply")
     assert p.returncode == 0, p.stderr
     backups = list(claude_dir.glob("settings.json.bak.*"))
     assert len(backups) == 2
@@ -335,13 +378,13 @@ def test_noop_apply_skips_the_write_and_keeps_user_bytes(tmp_path):
     hooks_file = tmp_path / ".codex" / "hooks.json"
     hooks_file.parent.mkdir()
     hooks_file.write_text(json.dumps({"note": "keep me"}))
-    p, _ = run_install(tmp_path, "--no-model", "--apply")
+    p, _ = run_install(tmp_path, "--no-model", "--stop-hook", "--apply")
     assert p.returncode == 0, p.stderr
     first = {f: f.read_bytes() for f in (settings, hooks_file)}
     # A merge writes the user's characters back as bytes, not \uXXXX escapes.
     assert "—".encode() in first[settings]
     assert "\\u2014" not in first[settings].decode()
-    p, _ = run_install(tmp_path, "--no-model", "--apply")
+    p, _ = run_install(tmp_path, "--no-model", "--stop-hook", "--apply")
     assert p.returncode == 0, p.stderr
     for f in (settings, hooks_file):
         assert f"SKIP {f.resolve()}" in p.stdout
@@ -361,7 +404,7 @@ def test_symlinked_settings_target_is_updated_and_link_stays(tmp_path):
     claude_dir.mkdir()
     settings = claude_dir / "settings.json"
     settings.symlink_to(target)
-    p, _ = run_install(tmp_path, "--no-model", "--apply")
+    p, _ = run_install(tmp_path, "--no-model", "--stop-hook", "--apply")
     assert p.returncode == 0, p.stderr
     assert settings.is_symlink()
     data = json.loads(target.read_text())
@@ -376,7 +419,7 @@ def stop_commands(path: Path) -> list:
 
 
 def test_printed_entries_are_what_apply_writes(tmp_path):
-    p, _ = run_install(tmp_path, "--no-model")
+    p, _ = run_install(tmp_path, "--no-model", "--stop-hook")
     assert p.returncode == 0, p.stderr
     claude_block, codex_block = printed_jsons(p.stdout)
     claude_cmd = claude_block["hooks"]["Stop"][0]["hooks"][0]["command"]
@@ -397,7 +440,7 @@ def test_printed_entries_are_what_apply_writes(tmp_path):
         "note": "keep me",
         "hooks": {"Stop": list(codex_block["hooks"]["Stop"])},
     }))
-    p, _ = run_install(tmp_path, "--no-model", "--apply")
+    p, _ = run_install(tmp_path, "--no-model", "--stop-hook", "--apply")
     assert p.returncode == 0, p.stderr
     assert stop_commands(settings) == [claude_cmd]
     assert stop_commands(hooks_file) == [codex_cmd]
@@ -413,7 +456,7 @@ def test_mixed_group_keeps_the_other_tool_hook(tmp_path):
         "theme": "dark",
         "hooks": {"Stop": [{"hooks": [other, ours]}]},
     }))
-    p, _ = run_install(tmp_path, "--no-model", "--apply")
+    p, _ = run_install(tmp_path, "--no-model", "--stop-hook", "--apply")
     assert p.returncode == 0, p.stderr
     stop = json.loads(settings.read_text())["hooks"]["Stop"]
     flat = [h for g in stop for h in g.get("hooks", [])]
@@ -450,7 +493,7 @@ def test_apply_without_python3_exits_before_any_write(tmp_path):
 
 
 def test_new_files_get_0644_and_existing_keeps_its_mode(tmp_path):
-    p, _ = run_install(tmp_path, "--no-model", "--apply")
+    p, _ = run_install(tmp_path, "--no-model", "--stop-hook", "--apply")
     assert p.returncode == 0, p.stderr
     for f in (tmp_path / ".claude" / "settings.json",
               tmp_path / ".codex" / "hooks.json"):
@@ -461,7 +504,7 @@ def test_new_files_get_0644_and_existing_keeps_its_mode(tmp_path):
     settings.parent.mkdir()
     settings.write_text(json.dumps({"theme": "dark"}))
     os.chmod(settings, 0o600)
-    p, _ = run_install(home2, "--no-model", "--apply")
+    p, _ = run_install(home2, "--no-model", "--stop-hook", "--apply")
     assert p.returncode == 0, p.stderr
     assert settings.stat().st_mode & 0o777 == 0o600
 
@@ -508,7 +551,7 @@ def test_apply_replaces_the_codex_entry_written_before_the_harness_flag(tmp_path
     old = ours_command(tmp_path)
     hooks_file.write_text(json.dumps({"hooks": {"Stop": [{"hooks": [
         {"type": "command", "command": old, "timeout": 600}]}]}}))
-    p, _ = run_install(tmp_path, "--no-model", "--apply")
+    p, _ = run_install(tmp_path, "--no-model", "--stop-hook", "--apply")
     assert p.returncode == 0, p.stderr
     assert ours_entries(hooks_file, old) == []
     assert len(ours_entries(hooks_file, ours_command(tmp_path, harness="codex"))) == 1

@@ -1,0 +1,42 @@
+--- a/hermes-adversarial-review
++++ b/hermes-adversarial-review
+@@ -21,6 +21,8 @@
+ HOME = Path.home()
+ HERMES_HOME = Path(os.environ.get("HERMES_HOME") or HOME / ".hermes")
+ 
++DEDUP_PREREVIEW_TIMEOUT = 600  # seconds; on timeout the dedup step warns and the review continues (fail open)
++
+ 
+ def default_model():
+     """$HERMES_REVIEW_MODEL, else the newest *-sol id in the live openai-codex catalog. No literal fallback."""
+@@ -251,6 +253,8 @@
+     ap.add_argument("--out")
+     ap.add_argument("--model")
+     ap.add_argument("--reasoning", default="high")
++    ap.add_argument("--no-dedup", action="store_true",
++                    help="skip the hermes-prereview duplicate check")
+     a = ap.parse_args()
+ 
+     patterns = DEFAULT_EXCLUDES + a.exclude
+@@ -273,6 +277,21 @@
+     if len(diff.encode()) > MAX_DIFF_BYTES:
+         die(f"hermes-adversarial-review: diff is {len(diff.encode())} bytes (> {MAX_DIFF_BYTES}); split it with --exclude or review per directory")
+ 
++    if a.repo and not a.no_dedup:
++        try:
++            rc = subprocess.run(["hermes-prereview", "--repo", a.repo],
++                                timeout=DEDUP_PREREVIEW_TIMEOUT).returncode
++        except OSError as e:
++            print(f"hermes-adversarial-review: dedup pre-check failed to start: {e}; continuing", file=sys.stderr)
++        except subprocess.TimeoutExpired:
++            print(f"hermes-adversarial-review: dedup pre-check timed out after {DEDUP_PREREVIEW_TIMEOUT} s; continuing", file=sys.stderr)
++        else:
++            # exit 4: dedup found a blocking duplicate. Any other failure warns and fails open.
++            if rc == 3:
++                sys.exit(4)
++            elif rc:
++                print(f"hermes-adversarial-review: dedup pre-check exited {rc}; continuing", file=sys.stderr)
++
+     reviews = HERMES_HOME / "cache" / "reviews"
+     reviews.mkdir(parents=True, exist_ok=True)
+     # pid keeps concurrent reviews of the same label from overwriting each other
