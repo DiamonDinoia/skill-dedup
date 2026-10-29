@@ -172,21 +172,29 @@ class FakeSession:
 
 
 class FakeEmbedding:
-    """Records the constructor kwargs. `active` is what the session reports."""
+    """Models fastembed: without `providers` it picks CUDA whenever onnxruntime lists it
+    (cuda=Device.AUTO). `active_cuda` False models onnxruntime dropping to CPU silently."""
 
     calls: list = []
     fail_cuda = False
     active_cuda = True
+    session = True  # False: no session attribute, like a fastembed that renamed it
 
     def __init__(self, model_name, cache_dir=None, **kw):
+        import onnxruntime
+
         self.kw = kw
         type(self).calls.append(kw)
-        if "providers" in kw and type(self).fail_cuda:
-            raise RuntimeError("libcudnn.so: cannot open shared object file")
-        providers = kw.get("providers", ["CPUExecutionProvider"])
-        if not type(self).active_cuda:
-            providers = ["CPUExecutionProvider"]
-        self.model = type("M", (), {"model": FakeSession(providers)})()
+        providers = kw.get("providers")
+        if providers is None:
+            avail = onnxruntime.get_available_providers()
+            providers = ["CUDAExecutionProvider"] if "CUDAExecutionProvider" in avail else ["CPUExecutionProvider"]
+        if "CUDAExecutionProvider" in providers:
+            if type(self).fail_cuda:
+                raise RuntimeError("libcudnn.so: cannot open shared object file")
+            if not type(self).active_cuda:
+                providers = ["CPUExecutionProvider"]
+        self.model = type("M", (), {"model": FakeSession(providers)})() if type(self).session else object()
 
     def embed(self, texts):
         return [[1.0, 0.0]] * len(texts)
@@ -200,6 +208,7 @@ def fake_provider(monkeypatch):
     FakeEmbedding.calls = []
     FakeEmbedding.fail_cuda = False
     FakeEmbedding.active_cuda = True
+    FakeEmbedding.session = True
     preloads = []
     monkeypatch.setattr(fastembed, "TextEmbedding", FakeEmbedding)
     monkeypatch.setattr(onnxruntime, "preload_dlls", lambda: preloads.append(1), raising=False)
@@ -214,7 +223,8 @@ def test_cpu_only_uses_threads_and_cpu_model_id(fake_provider):
     set_providers, preloads = fake_provider
     set_providers(["CPUExecutionProvider"])
     emb = embed.load("text")
-    assert FakeEmbedding.calls == [{"threads": min(4, os.cpu_count() or 1)}]
+    assert FakeEmbedding.calls == [
+        {"providers": ["CPUExecutionProvider"], "threads": min(4, os.cpu_count() or 1)}]
     assert not preloads and not emb.model_id.endswith("-cuda")
 
 
@@ -229,19 +239,49 @@ def test_cuda_preloads_and_requests_cuda_then_cpu(fake_provider):
     assert emb.model_id.endswith("-cuda")
 
 
-def test_cuda_failure_falls_back_to_cpu_not_unavailable(fake_provider):
+@pytest.mark.parametrize("mode", ["raises", "silent_cpu"])
+def test_broken_cuda_falls_back_to_cpu_not_unavailable(fake_provider, mode):
+    set_providers, _ = fake_provider
+    set_providers(["CUDAExecutionProvider", "CPUExecutionProvider"])
+    FakeEmbedding.fail_cuda = mode == "raises"
+    FakeEmbedding.active_cuda = mode != "silent_cpu"
+    emb = embed.load("text")
+    assert emb is not None and not emb.model_id.endswith("-cuda")
+    # the retry must name the CPU provider: fastembed would pick CUDA again
+    assert FakeEmbedding.calls[-1] == {
+        "providers": ["CPUExecutionProvider"], "threads": min(4, os.cpu_count() or 1)}
+    assert embed.PROVIDER["text"].startswith("cpu (")
+
+
+def test_unknown_session_attribute_trusts_cuda(fake_provider):
+    set_providers, _ = fake_provider
+    set_providers(["CUDAExecutionProvider", "CPUExecutionProvider"])
+    FakeEmbedding.session = False
+    emb = embed.load("text")
+    assert emb.model_id.endswith("-cuda") and embed.PROVIDER["text"] == "cuda"
+
+
+def test_cli_notes_the_provider_once_when_the_model_loads(fake_provider, capsys):
     set_providers, _ = fake_provider
     set_providers(["CUDAExecutionProvider", "CPUExecutionProvider"])
     FakeEmbedding.fail_cuda = True
-    emb = embed.load("text")
-    assert emb is not None and not emb.model_id.endswith("-cuda")
-    assert "threads" in FakeEmbedding.calls[-1]
+    cli._warned.clear()
+    assert cli._load_embedder("text") is not None
+    assert cli._load_embedder("text") is not None
+    err = capsys.readouterr().err.splitlines()
+    assert err == ["dedup-check: embed on cpu (libcudnn.so: cannot open shared object file)"]
 
 
-def test_silent_cpu_fallback_of_cuda_session_rebuilds_on_cpu(fake_provider):
+def test_cli_prints_no_provider_note_when_the_model_is_unavailable(fake_provider, capsys):
     set_providers, _ = fake_provider
-    set_providers(["CUDAExecutionProvider", "CPUExecutionProvider"])
-    FakeEmbedding.active_cuda = False  # session accepts providers but runs on CPU
-    emb = embed.load("text")
-    assert not emb.model_id.endswith("-cuda")
-    assert "threads" in FakeEmbedding.calls[-1]
+    set_providers(["CPUExecutionProvider"])
+    cli._warned.clear()
+    FakeEmbedding.calls = []
+    import fastembed
+
+    def boom(*a, **k):
+        raise RuntimeError("offline")
+
+    fastembed.TextEmbedding = boom  # fake_provider's monkeypatch restores it
+    assert cli._load_embedder("text") is None
+    assert "embed on" not in capsys.readouterr().err

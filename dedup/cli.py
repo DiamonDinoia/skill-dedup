@@ -317,6 +317,7 @@ def _load_embedder(kind: str):
     if emb is None:
         _note(f"{kind} model unavailable ({embed.ERRORS.get(kind, 'unknown')}); lexical only")
         return None
+    _note(f"embed on {embed.PROVIDER.get(kind, 'cpu')}")
     return emb, *embed.THRESHOLDS[kind]
 
 

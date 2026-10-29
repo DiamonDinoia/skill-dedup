@@ -23,6 +23,9 @@ _BATCH = 16
 # First line of the last load failure per kind, for the CLI note.
 ERRORS: dict[str, str] = {}
 
+# Provider that ran each loaded kind, for the CLI note: "cuda" or "cpu (reason)".
+PROVIDER: dict[str, str] = {}
+
 
 class Embedder:
     def __init__(self, fe, model_id):
@@ -66,15 +69,20 @@ def _new_session(model, cuda):
         kw = {"providers": ["CUDAExecutionProvider", "CPUExecutionProvider"]}
     else:
         # the hook runs beside the agent, so the CPU path gets a small thread budget
-        kw = {"threads": min(4, os.cpu_count() or 1)}
+        # providers is explicit: fastembed's default (Device.AUTO) picks CUDA whenever
+        # onnxruntime lists it, which would retry the broken CUDA stack
+        kw = {"providers": ["CPUExecutionProvider"], "threads": min(4, os.cpu_count() or 1)}
     fe = TextEmbedding(model_name=model, cache_dir=_model_cache_dir(), **kw)
     # load the weights and the ONNX session now, so an offline or corrupt
     # model fails here and not in the CLI match loop
     list(fe.embed(["warmup"]))
     if cuda:
-        # onnxruntime can drop to CPU without raising when a CUDA library is missing
-        active = fe.model.model.get_providers()
-        if "CUDAExecutionProvider" not in active:
+        # onnxruntime can drop to CPU without raising when a CUDA library is missing.
+        # fastembed does not document its session attribute: when it is absent the
+        # active provider is unknown and the session is trusted.
+        session = getattr(getattr(fe, "model", None), "model", None)
+        active = session.get_providers() if hasattr(session, "get_providers") else None
+        if active is not None and "CUDAExecutionProvider" not in active:
             raise RuntimeError(f"CUDAExecutionProvider not active: {active}")
     return fe
 
@@ -95,11 +103,13 @@ def load(kind) -> Embedder | None:
         # the CLI owns stderr; keep fastembed progress and error logs out of it
         logger.disable("fastembed")
         fe = None
+        reason = ""
         if cuda_available():
             try:
                 fe = _new_session(model, cuda=True)
-            except Exception:
-                fe = None  # a broken CUDA stack falls back to CPU, not to "unavailable"
+            except Exception as e:
+                # a broken CUDA stack falls back to CPU, not to "unavailable"
+                reason = (str(e).splitlines() or [""])[0][:120] or e.__class__.__name__
         cuda = fe is not None
         if fe is None:
             fe = _new_session(model, cuda=False)
@@ -107,6 +117,7 @@ def load(kind) -> Embedder | None:
         msg = str(e)
         ERRORS[kind] = msg.splitlines()[0] if msg.strip() else e.__class__.__name__
         return None
+    PROVIDER[kind] = "cuda" if cuda else f"cpu ({reason})" if reason else "cpu"
     # CUDA and CPU vectors differ: cosine 0.999992 at worst, up to 1e-3 in a pair
     # score, enough to straddle THRESHOLDS. Each provider keeps its own cache key.
     model_id = f"{model}-fe{fastembed.__version__}" + ("-cuda" if cuda else "")
