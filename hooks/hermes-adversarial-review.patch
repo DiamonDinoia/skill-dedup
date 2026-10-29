@@ -1,15 +1,17 @@
 --- a/hermes-adversarial-review
 +++ b/hermes-adversarial-review
-@@ -21,6 +21,8 @@
+@@ -21,6 +21,10 @@
  HOME = Path.home()
  HERMES_HOME = Path(os.environ.get("HERMES_HOME") or HOME / ".hermes")
  
-+DEDUP_PREREVIEW_TIMEOUT = 600  # seconds; on timeout the dedup step warns and the review continues (fail open)
++DEDUP_PREREVIEW_TIMEOUT = 600  # seconds; on timeout the review continues with a "check did not run" note (fail open)
++DEDUP_HEADER = ("Duplicate check (dedup-check, run once before this review): verify each candidate; "
++                "[block] items are high severity.")
 +
  
  def default_model():
      """$HERMES_REVIEW_MODEL, else the newest *-sol id in the live openai-codex catalog. No literal fallback."""
-@@ -251,6 +253,8 @@
+@@ -251,6 +255,8 @@
      ap.add_argument("--out")
      ap.add_argument("--model")
      ap.add_argument("--reasoning", default="high")
@@ -18,25 +20,40 @@
      a = ap.parse_args()
  
      patterns = DEFAULT_EXCLUDES + a.exclude
-@@ -273,6 +277,21 @@
+@@ -273,6 +279,27 @@
      if len(diff.encode()) > MAX_DIFF_BYTES:
          die(f"hermes-adversarial-review: diff is {len(diff.encode())} bytes (> {MAX_DIFF_BYTES}); split it with --exclude or review per directory")
  
++    dedup_section = ""
 +    if a.repo and not a.no_dedup:
++        # exit 0 and 3 both carry findings on stdout; exit 3 (blocking) no longer aborts the review.
++        # Any other outcome fails open: one stderr line and a note in the prompt.
++        note = None
 +        try:
-+            rc = subprocess.run(["hermes-prereview", "--repo", a.repo],
-+                                timeout=DEDUP_PREREVIEW_TIMEOUT).returncode
++            p = subprocess.run(["hermes-prereview", "--repo", a.repo], stdout=subprocess.PIPE,
++                               text=True, timeout=DEDUP_PREREVIEW_TIMEOUT)
 +        except OSError as e:
-+            print(f"hermes-adversarial-review: dedup pre-check failed to start: {e}; continuing", file=sys.stderr)
++            note = f"failed to start: {e}"
 +        except subprocess.TimeoutExpired:
-+            print(f"hermes-adversarial-review: dedup pre-check timed out after {DEDUP_PREREVIEW_TIMEOUT} s; continuing", file=sys.stderr)
++            note = f"timed out after {DEDUP_PREREVIEW_TIMEOUT} s"
 +        else:
-+            # exit 4: dedup found a blocking duplicate. Any other failure warns and fails open.
-+            if rc == 3:
-+                sys.exit(4)
-+            elif rc:
-+                print(f"hermes-adversarial-review: dedup pre-check exited {rc}; continuing", file=sys.stderr)
++            if p.returncode in (0, 3):
++                dedup_section = f"{DEDUP_HEADER}\n{p.stdout.strip()}\n\n"
++            else:
++                note = f"exited {p.returncode}"
++        if note:
++            print(f"hermes-adversarial-review: dedup pre-check {note}; continuing", file=sys.stderr)
++            dedup_section = "Duplicate check did not run (" + note + "); no duplicate findings are available.\n\n"
 +
      reviews = HERMES_HOME / "cache" / "reviews"
      reviews.mkdir(parents=True, exist_ok=True)
      # pid keeps concurrent reviews of the same label from overwriting each other
+@@ -283,7 +310,7 @@
+     work = Path(tempfile.mkdtemp(prefix="run-", dir=HERMES_HOME / "cache" / "blind-review"))
+     try:
+         qf = work / "query.txt"
+-        qf.write_text(INSTRUCTIONS + "\n\n=== DIFF START ===\n" + diff + "\n=== DIFF END ===\n")
++        qf.write_text(INSTRUCTIONS + "\n\n" + dedup_section + "=== DIFF START ===\n" + diff + "\n=== DIFF END ===\n")
+         # The request dump on disk goes through agent.redact.redact_sensitive_text on the
+         # serialized JSON payload (dump writer protection), so the dumped user text equals
+         # the redaction of the JSON-escaped query, decoded back. Reproduce that exact text

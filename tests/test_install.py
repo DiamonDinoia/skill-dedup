@@ -129,6 +129,19 @@ def test_no_apply_installs_with_uv_and_writes_no_harness_files(tmp_path):
     for name in ("stop_hook.py", "dedup_contract.py", "hermes-prereview"):
         assert (hook_dir / name).exists()
     assert str(hook_dir / "stop_hook.py") in p.stdout  # printed hook JSON
+    # hermes-adversarial-review runs "hermes-prereview" by bare name from the same bin dir
+    link = tmp_path / ".local/bin/hermes-prereview"
+    assert link.is_symlink() and link.resolve() == (hook_dir / "hermes-prereview").resolve()
+
+
+def test_installed_review_patch_is_detected_as_already_applied(tmp_path):
+    review = tmp_path / ".local/bin/hermes-adversarial-review"
+    review.parent.mkdir(parents=True)
+    review.write_text((ROOT / "tests/fixtures/review-script").read_text())
+    for expect in ("applied hermes-adversarial-review.patch", "already applied"):
+        p, _ = run_install(tmp_path, "--no-model", "--apply")
+        assert p.returncode == 0, p.stderr
+        assert expect in p.stderr
 
 
 def test_apply_twice_is_idempotent_and_backs_up(tmp_path):

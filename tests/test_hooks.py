@@ -393,13 +393,21 @@ def make_repo(tmp_path):
     return repo
 
 
-def run_review(patched_review, tmp_path, *, prereview_rc=None, timeout=None):
+FINDINGS_TEXT = "base: abc\nsrc/new.py:1-9 ~ src/old.py:3-11 (code, lexical, 0.97) [block]"
+
+
+def prompt_of(p):
+    """The prompt the review built: the fixture echoes it into the review file."""
+    return Path(p.stdout.strip().splitlines()[-1]).read_text()
+
+
+def run_review(patched_review, tmp_path, *, prereview_rc=None, timeout=None, extra=()):
     bindir = tmp_path / f"bin-{'none' if prereview_rc is None else prereview_rc}"
     bindir.mkdir(exist_ok=True)
     if prereview_rc is not None:
         # exec: the stub IS the sleeper, so the review's timeout kill hits it
         body = ("#!/bin/sh\nexec sleep 30\n" if prereview_rc == "sleep"
-                else f"#!/bin/sh\nexit {prereview_rc}\n")
+                else f"#!/bin/sh\ncat <<'EOF'\n{FINDINGS_TEXT}\nEOF\nexit {prereview_rc}\n")
         pre = bindir / "hermes-prereview"
         pre.write_text(body)
         pre.chmod(0o755)
@@ -410,34 +418,52 @@ def run_review(patched_review, tmp_path, *, prereview_rc=None, timeout=None):
                HERMES_HOME=str(tmp_path / "hh"))
     # timeout bounds the run inside pytest so a missing patch timeout cannot hang the suite
     return subprocess.run([sys.executable, str(patched_review),
-                           "--repo", str(make_repo(tmp_path)), "--model", "test-model"],
+                           "--repo", str(make_repo(tmp_path)), "--model", "test-model", *extra],
                           capture_output=True, text=True, env=env, timeout=timeout)
 
 
-def test_patch_exits_4_on_blocking_prereview(tmp_path, patched_review):
+def test_patch_blocking_prereview_does_not_abort_and_reaches_prompt(tmp_path, patched_review):
     p = run_review(patched_review, tmp_path, prereview_rc=3)
-    assert p.returncode == 4
+    assert p.returncode == 0
+    prompt = prompt_of(p)
+    assert "Duplicate check (dedup-check, run once before this review)" in prompt
+    assert FINDINGS_TEXT in prompt and "[block] items are high severity" in prompt
+    # the section sits before the diff, outside the diff markers
+    assert prompt.index(FINDINGS_TEXT) < prompt.index("=== DIFF START ===")
+
+
+def test_patch_clean_prereview_reaches_prompt(tmp_path, patched_review):
+    p = run_review(patched_review, tmp_path, prereview_rc=0)
+    assert p.returncode == 0 and FINDINGS_TEXT in prompt_of(p)
 
 
 def test_patch_continues_warns_on_prereview_exit_2(tmp_path, patched_review):
     p = run_review(patched_review, tmp_path, prereview_rc=2)
-    assert p.returncode != 4
+    assert p.returncode == 0
     assert "dedup pre-check exited 2; continuing" in p.stderr
+    prompt = prompt_of(p)
+    assert "Duplicate check did not run" in prompt and FINDINGS_TEXT not in prompt
 
 
 def test_patch_continues_warns_when_prereview_missing(tmp_path, patched_review):
     p = run_review(patched_review, tmp_path, prereview_rc=None)
-    assert p.returncode != 4
+    assert p.returncode == 0
     assert "dedup pre-check failed to start" in p.stderr
+    assert "Duplicate check did not run" in prompt_of(p)
 
 
-def test_patched_main_has_no_dedup_block_named_exit_4(patched_review):
+def test_patch_no_dedup_flag_skips_section(tmp_path, patched_review):
+    p = run_review(patched_review, tmp_path, prereview_rc=3, extra=("--no-dedup",))
+    assert p.returncode == 0
+    prompt = prompt_of(p)
+    assert "Duplicate check" not in prompt and FINDINGS_TEXT not in prompt
+
+
+def test_patched_main_has_no_exit_4_for_blocking_duplicates(patched_review):
     src = patched_review.read_text()
     assert "--no-dedup" in src
     dedup_block = src.split("if a.repo and not a.no_dedup:")[1].split("reviews = ")[0]
-    assert "sys.exit(4)" in dedup_block
-    assert "sys.exit(rc)" not in dedup_block and "sys.exit(3)" not in dedup_block
-    assert "sys.exit(1)" not in dedup_block
+    assert "sys.exit" not in dedup_block
 
 
 def test_patch_prereview_timeout_warns_and_continues(tmp_path, patched_review):
@@ -449,10 +475,11 @@ def test_patch_prereview_timeout_warns_and_continues(tmp_path, patched_review):
     p = run_review(patched_review, tmp_path, prereview_rc="sleep", timeout=15)
     assert time.monotonic() - t0 < 15
     assert "dedup pre-check timed out after 2 s; continuing" in p.stderr
-    assert p.returncode != 4  # fail open: the review continues past the dedup step
+    assert p.returncode == 0  # fail open: the review continues past the dedup step
+    assert "Duplicate check did not run (timed out after 2 s)" in prompt_of(p)
 
 
 # Opt-in check against a copy of the live script: same patch, same behaviour.
-def test_live_review_patch_exits_4_on_blocking_prereview(tmp_path, patched_live_review):
+def test_live_review_patch_applies_and_blocking_prereview_does_not_exit_4(tmp_path, patched_live_review):
     p = run_review(patched_live_review, tmp_path, prereview_rc=3, timeout=120)
-    assert p.returncode == 4
+    assert p.returncode != 4

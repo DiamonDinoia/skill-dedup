@@ -19,7 +19,8 @@ The script does these steps:
    and adds `dedup-check` to ~/.local/bin. The pip path must have python3
    3.11 or a subsequent release, and the python3-venv package on Debian and
    Ubuntu.
-2. Copy the hook scripts to ~/.local/share/skill-dedup/hooks. Then the
+2. Copy the hook scripts to ~/.local/share/skill-dedup/hooks and link
+   `hermes-prereview` into ~/.local/bin, next to `dedup-check`. Then the
    harness config does not refer to the clone. Set XDG_DATA_HOME to use a
    different parent directory.
 3. Download the model, unless --no-model. The model is
@@ -44,8 +45,8 @@ The script does these steps:
    updated files and their backups. For Hermes the script applies
    hooks/hermes-adversarial-review.patch to
    ~/.local/bin/hermes-adversarial-review when that file is available and
-   `patch --dry-run` gives no error. If not, the script prints one skip
-   line. Run `install.sh --help` for the flag list.
+   `patch --dry-run` gives no error. If the patch is already applied, the
+   script says so. If not, the script prints one skip line. Run `install.sh --help` for the flag list.
 
 Manual install. From the clone root run `uv tool install .`, or make the
 venv and use pip by hand:
@@ -64,6 +65,7 @@ harness config.
 ```
 uv tool uninstall skill-dedup  # or: rm ~/.local/bin/dedup-check
 rm -rf ~/.local/share/skill-dedup
+rm -f ~/.local/bin/hermes-prereview
 rm -rf ~/.cache/skill-dedup
 ```
 

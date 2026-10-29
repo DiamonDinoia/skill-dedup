@@ -8,7 +8,7 @@ usage() {
 usage: install.sh [--apply] [--no-model]
 
 Installs the dedup-check CLI from this clone (uv tool install, or a venv with
-pip when uv is not on PATH), copies the hook scripts to
+pip when uv is not on PATH), links hermes-prereview into ~/.local/bin, copies the hook scripts to
 $XDG_DATA_HOME/skill-dedup/hooks (~/.local/share by default), fetches the
 embedding model (about 210 MB), and prints the harness hook config.
 With --apply each existing harness file is backed up first as
@@ -80,6 +80,9 @@ mkdir -p "$HOOK_DIR"
 cp "$REPO_DIR/hooks/stop_hook.py" "$REPO_DIR/hooks/dedup_contract.py" \
    "$REPO_DIR/hooks/hermes-prereview" "$HOOK_DIR/"
 chmod +x "$HOOK_DIR/stop_hook.py" "$HOOK_DIR/hermes-prereview"
+# Same bin dir as dedup-check, so hermes-adversarial-review finds it by bare name.
+mkdir -p "$LOCAL_BIN"
+ln -sf "$HOOK_DIR/hermes-prereview" "$LOCAL_BIN/hermes-prereview"
 
 DEDUP_CHECK=$LOCAL_BIN/dedup-check
 [ -x "$DEDUP_CHECK" ] || DEDUP_CHECK=dedup-check
@@ -97,7 +100,8 @@ EOF
 python3 "$REPO_DIR/scripts/apply_hooks.py" --print "$STOP_HOOK"
 cat <<EOF
 
-Hermes: $HOOK_DIR/hermes-prereview is installed. To wire it into
+Hermes: $HOOK_DIR/hermes-prereview is installed and linked as
+$LOCAL_BIN/hermes-prereview. To wire it into
 hermes-adversarial-review, rerun with --apply, or run the patch by hand:
   patch -p1 -d $LOCAL_BIN < $REPO_DIR/hooks/hermes-adversarial-review.patch
 
@@ -109,7 +113,10 @@ EOF
 if [ "$APPLY" -eq 1 ]; then
     python3 "$REPO_DIR/scripts/apply_hooks.py" "$STOP_HOOK"
     REVIEW="$LOCAL_BIN/hermes-adversarial-review"
-    if [ -f "$REVIEW" ] && patch --dry-run -p1 -d "$LOCAL_BIN" \
+    if [ -f "$REVIEW" ] && patch -R --dry-run -p1 -d "$LOCAL_BIN" \
+            < "$REPO_DIR/hooks/hermes-adversarial-review.patch" >/dev/null 2>&1; then
+        echo "install.sh: hermes-adversarial-review.patch is already applied to $REVIEW" >&2
+    elif [ -f "$REVIEW" ] && patch --dry-run -p1 -d "$LOCAL_BIN" \
             < "$REPO_DIR/hooks/hermes-adversarial-review.patch" >/dev/null 2>&1; then
         patch -p1 -d "$LOCAL_BIN" < "$REPO_DIR/hooks/hermes-adversarial-review.patch"
         echo "install.sh: applied hermes-adversarial-review.patch to $REVIEW" >&2

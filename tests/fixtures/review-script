@@ -6,8 +6,10 @@ minimal runnable body, so the patched-review tests run on a clean checkout.
 """
 import argparse
 import os
+import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 HOME = Path.home()
@@ -19,6 +21,7 @@ def default_model():
     return os.environ.get("HERMES_REVIEW_MODEL", "test-model")
 
 
+INSTRUCTIONS = "fixture instructions"
 DEFAULT_EXCLUDES = []
 MAX_DIFF_BYTES = 300_000
 
@@ -47,7 +50,19 @@ def main():
     reviews.mkdir(parents=True, exist_ok=True)
     # pid keeps concurrent reviews of the same label from overwriting each other
     out = Path(a.out) if a.out else reviews / f"fixture-{os.getpid()}.md"
-    out.write_text(f"model={a.model or default_model()}\nVERDICT: PASS fixture\n")
+
+    (HERMES_HOME / "cache" / "blind-review").mkdir(parents=True, exist_ok=True)
+    work = Path(tempfile.mkdtemp(prefix="run-", dir=HERMES_HOME / "cache" / "blind-review"))
+    try:
+        qf = work / "query.txt"
+        qf.write_text(INSTRUCTIONS + "\n\n=== DIFF START ===\n" + diff + "\n=== DIFF END ===\n")
+        # The request dump on disk goes through agent.redact.redact_sensitive_text on the
+        # serialized JSON payload (dump writer protection), so the dumped user text equals
+        # the redaction of the JSON-escaped query, decoded back. Reproduce that exact text
+        # The fixture echoes the prompt into the review file so tests can read it.
+        out.write_text(f"model={a.model or default_model()}\nVERDICT: PASS fixture\n{qf.read_text()}")
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
     print(out)
 
 
