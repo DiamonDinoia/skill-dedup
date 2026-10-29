@@ -62,10 +62,21 @@ HOOK_DIR="$APP_DIR/hooks"
 LOCAL_BIN="$HOME/.local/bin"
 STOP_HOOK="$APP_DIR/hooks/stop_hook.py"
 
-# A working GPU, not just the binary: nvidia-smi -L must exit 0.
+# A working GPU, not just the binary: nvidia-smi -L must exit 0. The CUDA 13
+# wheels of onnxruntime-gpu need driver 580 or newer (CUDA 13.x, Linux).
+MIN_DRIVER=580
 GPU=0
 if [ "$FORCE_CPU" -eq 0 ] && nvidia-smi -L >/dev/null 2>&1; then
-    GPU=1
+    DRIVER=$(nvidia-smi --query-gpu=driver_version --format=csv,noheader 2>/dev/null | head -n 1)
+    DRIVER_MAJOR=${DRIVER%%.*}
+    case "$DRIVER_MAJOR" in
+        ''|*[!0-9]*) echo "install.sh: cannot read the NVIDIA driver version; installing the CPU build" >&2 ;;
+        *) if [ "$DRIVER_MAJOR" -ge "$MIN_DRIVER" ]; then GPU=1
+           else echo "install.sh: NVIDIA driver $DRIVER is older than $MIN_DRIVER (CUDA 13); installing the CPU build" >&2
+           fi ;;
+    esac
+fi
+if [ "$GPU" -eq 1 ]; then
     echo "install.sh: GPU found; installing the gpu extra (about 2.5 GB). Use --cpu to skip it." >&2
 fi
 

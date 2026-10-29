@@ -78,8 +78,11 @@ works with no extra step. For the GPU, `install.sh` runs
 `uv tool install "<repo>[gpu]" --excludes <file>`, where the file lists
 `fastembed` and `onnxruntime`. The tool venv then has no CPU build.
 
-`install.sh` picks the GPU route when `nvidia-smi -L` exits 0. That means a
-working GPU, not only the binary. Use `install.sh --cpu` to force the CPU
+`install.sh` picks the GPU route when `nvidia-smi -L` exits 0 and the driver
+major version is 580 or newer. That means a working GPU with a driver for the
+CUDA 13 wheels, not only the binary. The minimum of 580 is the NVIDIA minimum
+for CUDA 13.x on Linux x86_64, from the CUDA Toolkit release notes (not
+re-read when this check was written). Use `install.sh --cpu` to force the CPU
 build. The pip fallback (no uv) is CPU only.
 
 At run time `dedup/embed.py` checks `onnxruntime.get_available_providers()`.

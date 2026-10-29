@@ -22,19 +22,23 @@ def base_env(home: Path) -> dict:
     return env
 
 
-def fake_nvidia_smi(bindir: Path, works: bool):
+def fake_nvidia_smi(bindir: Path, works: bool, driver: str = "580.159.04"):
     """A nvidia-smi that lists one GPU (exit 0) or fails like a missing driver."""
     smi = bindir / "nvidia-smi"
-    smi.write_text("#!/bin/sh\n" + ("echo 'GPU 0: Fake (UUID: x)'\n" if works
-                                    else "echo 'NVIDIA-SMI has failed' >&2\nexit 9\n"))
+    if not works:
+        body = "echo 'NVIDIA-SMI has failed' >&2\nexit 9\n"
+    else:
+        body = (f'case "$*" in *driver_version*) echo "{driver}" ;; '
+                "*) echo 'GPU 0: Fake (UUID: x)' ;; esac\n")
+    smi.write_text("#!/bin/sh\n" + body)
     smi.chmod(0o755)
 
 
-def run_install(home: Path, *args: str, gpu: bool = False):
+def run_install(home: Path, *args: str, gpu: bool = False, driver: str = "580.159.04"):
     """Run install.sh against a temp HOME with a fake uv first on PATH."""
     bindir = home / "bin"
     bindir.mkdir(exist_ok=True)
-    fake_nvidia_smi(bindir, gpu)
+    fake_nvidia_smi(bindir, gpu, driver)
     log = home / "uv.log"
     uv = bindir / "uv"
     # keep a copy of the --excludes file: install.sh deletes it after the call
@@ -159,6 +163,17 @@ def test_working_gpu_installs_the_gpu_extra(tmp_path):
     # the CPU build must not resolve beside the GPU one
     assert (tmp_path / "excludes.copy").read_text().split() == ["fastembed", "onnxruntime"]
     assert "2.5 GB" in p.stderr
+
+
+@pytest.mark.parametrize("driver,extra", [
+    ("580.159.04", True), ("615.71.10", True), ("580", True),
+    ("575.57.08", False), ("535.104.05", False), ("garbage", False), ("", False)])
+def test_driver_version_gates_the_gpu_extra(tmp_path, driver, extra):
+    p, uv_args = run_install(tmp_path, "--no-model", gpu=True, driver=driver)
+    assert p.returncode == 0, p.stderr
+    assert (install_spec(uv_args) == f"{ROOT}[gpu]") == extra
+    if not extra:
+        assert "installing the CPU build" in p.stderr and "--excludes" not in uv_args
 
 
 def test_cpu_flag_overrides_a_working_gpu(tmp_path):
