@@ -5,10 +5,15 @@ set -eu
 
 usage() {
     cat <<'EOF'
-usage: install.sh [--apply] [--no-model]
+usage: install.sh [--apply] [--no-model] [--cpu]
 
 Installs the dedup-check CLI from this clone (uv tool install, or a venv with
-pip when uv is not on PATH), links hermes-prereview into ~/.local/bin, copies the hook scripts to
+pip when uv is not on PATH). When `nvidia-smi -L` succeeds, the script
+installs the gpu extra (fastembed-gpu, onnxruntime-gpu with CUDA 13 and cuDNN
+wheels, about 2.5 GB) and excludes the CPU fastembed and onnxruntime.
+Otherwise, or with --cpu, it installs the CPU build. The pip fallback is
+CPU only. It links hermes-prereview into ~/.local/bin, copies the hook
+scripts to
 $XDG_DATA_HOME/skill-dedup/hooks (~/.local/share by default), fetches the
 embedding model (about 210 MB), and prints the harness hook config.
 With --apply each existing harness file is backed up first as
@@ -18,10 +23,12 @@ EOF
 
 APPLY=0
 MODEL=1
+FORCE_CPU=0
 for arg in "$@"; do
     case "$arg" in
         --apply) APPLY=1 ;;
         --no-model) MODEL=0 ;;
+        --cpu) FORCE_CPU=1 ;;
         --help) usage; exit 0 ;;
         *) echo "install.sh: bad flag: $arg" >&2; exit 2 ;;
     esac
@@ -48,8 +55,23 @@ HOOK_DIR="$APP_DIR/hooks"
 LOCAL_BIN="$HOME/.local/bin"
 STOP_HOOK="$APP_DIR/hooks/stop_hook.py"
 
+# A working GPU, not just the binary: nvidia-smi -L must exit 0.
+GPU=0
+if [ "$FORCE_CPU" -eq 0 ] && nvidia-smi -L >/dev/null 2>&1; then
+    GPU=1
+    echo "install.sh: GPU found; installing the gpu extra (about 2.5 GB). Use --cpu to skip it." >&2
+fi
+
 if command -v uv >/dev/null 2>&1; then
-    uv tool install --force "$REPO_DIR"
+    if [ "$GPU" -eq 1 ]; then
+        # fastembed-gpu replaces fastembed; both ship the onnxruntime module
+        EXCLUDES=$(mktemp)
+        printf 'fastembed\nonnxruntime\n' > "$EXCLUDES"
+        uv tool install --force "$REPO_DIR[gpu]" --excludes "$EXCLUDES"
+        rm -f "$EXCLUDES"
+    else
+        uv tool install --force "$REPO_DIR"
+    fi
 else
     if ! python3 -c "$PY_GATE"; then
         echo "install.sh: python3 >= 3.11 is required; the oldest python3 on PATH is older" >&2
@@ -61,6 +83,7 @@ else
     fi
     VENV="$APP_DIR/venv"
     python3 -m venv "$VENV"
+    # the pip fallback is CPU only
     "$VENV/bin/python" -m pip install --quiet "$REPO_DIR"
     mkdir -p "$LOCAL_BIN"
     ln -sf "$VENV/bin/dedup-check" "$LOCAL_BIN/dedup-check"

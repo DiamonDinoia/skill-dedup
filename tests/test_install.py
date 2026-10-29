@@ -22,13 +22,24 @@ def base_env(home: Path) -> dict:
     return env
 
 
-def run_install(home: Path, *args: str):
+def fake_nvidia_smi(bindir: Path, works: bool):
+    """A nvidia-smi that lists one GPU (exit 0) or fails like a missing driver."""
+    smi = bindir / "nvidia-smi"
+    smi.write_text("#!/bin/sh\n" + ("echo 'GPU 0: Fake (UUID: x)'\n" if works
+                                    else "echo 'NVIDIA-SMI has failed' >&2\nexit 9\n"))
+    smi.chmod(0o755)
+
+
+def run_install(home: Path, *args: str, gpu: bool = False):
     """Run install.sh against a temp HOME with a fake uv first on PATH."""
     bindir = home / "bin"
     bindir.mkdir(exist_ok=True)
+    fake_nvidia_smi(bindir, gpu)
     log = home / "uv.log"
     uv = bindir / "uv"
-    uv.write_text(f'#!/bin/sh\necho "$@" >> "{log}"\n')
+    # keep a copy of the --excludes file: install.sh deletes it after the call
+    uv.write_text(f'#!/bin/sh\necho "$@" >> "{log}"\n'
+                  f'while [ $# -gt 0 ]; do [ "$1" = --excludes ] && cp "$2" "{home}/excludes.copy"; shift; done\n')
     uv.chmod(0o755)
     env = base_env(home)
     env["PATH"] = f"{bindir}{os.pathsep}{os.environ['PATH']}"
@@ -65,6 +76,7 @@ def make_fake_python3(home: Path, spoof_310: bool):
         (site / "sitecustomize.py").write_text(
             "import sys; sys.version_info = (3, 10, 8, 'final', 0)\n")
         env["FAKE_PY_SITE"] = str(site)
+    fake_nvidia_smi(bindir, False)
     py = bindir / "python3"
     py.write_text(FAKE_PYTHON3.replace("{real}", sys.executable))
     py.chmod(0o755)
@@ -132,6 +144,33 @@ def test_no_apply_installs_with_uv_and_writes_no_harness_files(tmp_path):
     # hermes-adversarial-review runs "hermes-prereview" by bare name from the same bin dir
     link = tmp_path / ".local/bin/hermes-prereview"
     assert link.is_symlink() and link.resolve() == (hook_dir / "hermes-prereview").resolve()
+
+
+def install_spec(uv_args):
+    return uv_args[uv_args.index("install") + 2]
+
+
+def test_working_gpu_installs_the_gpu_extra(tmp_path):
+    p, uv_args = run_install(tmp_path, "--no-model", gpu=True)
+    assert p.returncode == 0, p.stderr
+    assert install_spec(uv_args) == f"{ROOT}[gpu]"
+    assert uv_args[uv_args.index("--excludes") - 1] == f"{ROOT}[gpu]"
+    # the CPU build must not resolve beside the GPU one
+    assert (tmp_path / "excludes.copy").read_text().split() == ["fastembed", "onnxruntime"]
+    assert "2.5 GB" in p.stderr
+
+
+def test_cpu_flag_overrides_a_working_gpu(tmp_path):
+    p, uv_args = run_install(tmp_path, "--no-model", "--cpu", gpu=True)
+    assert p.returncode == 0, p.stderr
+    assert install_spec(uv_args) == str(ROOT) and "--excludes" not in uv_args
+
+
+def test_broken_nvidia_smi_installs_the_cpu_extra(tmp_path):
+    # the binary exists but exits non-zero: no working GPU
+    p, uv_args = run_install(tmp_path, "--no-model", gpu=False)
+    assert (tmp_path / "bin/nvidia-smi").exists()
+    assert install_spec(uv_args) == str(ROOT) and "--excludes" not in uv_args
 
 
 def test_installed_review_patch_is_detected_as_already_applied(tmp_path):
@@ -232,7 +271,9 @@ def test_hook_path_with_space_is_quoted(tmp_path):
     bindir.mkdir()
     log = env_home / "uv.log"
     uv = bindir / "uv"
-    uv.write_text(f'#!/bin/sh\necho "$@" >> "{log}"\n')
+    # keep a copy of the --excludes file: install.sh deletes it after the call
+    uv.write_text(f'#!/bin/sh\necho "$@" >> "{log}"\n'
+                  f'while [ $# -gt 0 ]; do [ "$1" = --excludes ] && cp "$2" "{env_home}/excludes.copy"; shift; done\n')
     uv.chmod(0o755)
     env = base_env(env_home)
     env["XDG_DATA_HOME"] = str(data_home)

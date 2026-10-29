@@ -11,6 +11,12 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# fastembed and fastembed-gpu both install the "fastembed" and "onnxruntime"
+# modules. install.sh excludes the CPU packages when it installs this extra.
+gpu = [
+    "fastembed-gpu",
+    "onnxruntime-gpu[cuda,cudnn]",  # CUDA 13 wheels, about 2.5 GB
+]
 eval = [
     "sentence-transformers",
     "torch",
