@@ -14,9 +14,12 @@ git clone https://github.com/DiamonDinoia/skill-dedup
 The script does these steps:
 
 1. Install the command. With `uv` on PATH the script runs
-   `uv tool install --force` on the clone directory. Without `uv` it makes a
+   `uv tool install --force` on the clone directory, with the `gpu` extra
+   on a GPU host (see "GPU"). The tool venv is under
+   ~/.local/share/uv/tools/skill-dedup. Without `uv` the script makes a
    venv at ~/.local/share/skill-dedup/venv, installs the package with pip,
-   and adds `dedup-check` to ~/.local/bin. The pip path must have python3
+   and adds `dedup-check` to ~/.local/bin. A host with uv takes the first
+   path, so the venv path is the fallback. The pip path must have python3
    3.11 or a subsequent release, and the python3-venv package on Debian and
    Ubuntu.
 2. Copy the hook scripts to ~/.local/share/skill-dedup/hooks and link
@@ -46,10 +49,11 @@ The script does these steps:
    hooks/hermes-adversarial-review.patch to
    ~/.local/bin/hermes-adversarial-review when that file is available and
    `patch --dry-run` gives no error. If the patch is already applied, the
-   script says so. If not, the script prints one skip line. Run `install.sh --help` for the flag list.
+   script says so. If not, the script prints one skip line. Run
+   `install.sh --help` for the flag list.
 
 Manual install. From the clone root run `uv tool install .`, or make the
-venv and use pip by hand:
+venv and use pip by hand. The pip path is CPU only.
 
 ```
 python3 -m venv ~/.local/share/skill-dedup/venv
@@ -59,6 +63,53 @@ ln -sf ~/.local/share/skill-dedup/venv/bin/dedup-check ~/.local/bin/dedup-check
 
 Then run `dedup-check --fetch-model` and read hooks/install.md for the
 harness config.
+
+## GPU
+
+The `gpu` extra adds `fastembed-gpu` and `onnxruntime-gpu[cuda,cudnn]`
+(CUDA 13 wheels). The footprint is about 2.5 GB. `fastembed` and
+`fastembed-gpu` both ship the `onnxruntime` module, so the CPU build would
+shadow the GPU build. The base install keeps `fastembed`, so a plain install
+works with no extra step. For the GPU, `install.sh` runs
+`uv tool install "<repo>[gpu]" --excludes <file>`, where the file lists
+`fastembed` and `onnxruntime`. The tool venv then has no CPU build.
+
+`install.sh` picks the GPU route when `nvidia-smi -L` exits 0. That means a
+working GPU, not only the binary. Use `install.sh --cpu` to force the CPU
+build. The pip fallback (no uv) is CPU only.
+
+At run time `dedup/embed.py` checks `onnxruntime.get_available_providers()`.
+With `CUDAExecutionProvider` it calls `onnxruntime.preload_dlls()` and asks
+for CUDA with a CPU fallback. If the CUDA session fails, or runs on CPU, the
+embedder falls back to the CPU path with 4 threads at most. The model does
+not become unavailable.
+
+Measured on an RTX 4070 Laptop (8 GB), 2000 Markdown chunks: 6.2 s on CUDA.
+The CPU build did not finish them in 11 minutes on 4 threads.
+
+CUDA and CPU vectors differ. On 200 chunks the cosine between the two
+vectors of a chunk is 0.999992 at worst. A pair score moves by up to 1e-3.
+That is enough to cross a threshold, so the cache key of a CUDA run ends in
+`-cuda`. A CPU run keeps its old key.
+
+## Run once before a review
+
+The default design runs the check once, right before an adversarial review.
+`hermes-adversarial-review` runs `hermes-prereview --repo PATH` and appends
+the findings to the review prompt, under the line "Duplicate check
+(dedup-check, run once before this review)". The reviewer verifies each
+candidate and treats `[block]` items as high severity.
+
+- A blocking result (exit 3) does not stop the review. It goes into the
+  prompt.
+- An error, crash, missing binary or timeout prints one stderr line. The
+  prompt says the check did not run, and the review goes on.
+- `--no-dedup` skips the check.
+
+The Stop hook is optional and not recommended on big repos. It runs the check
+after every agent turn. One run on a 21,873-file repo takes longer than the
+570 s timeout on CPU. Install the Stop hook only on small repos, or when the
+`gpu` extra is in use.
 
 ## Uninstall
 
@@ -83,7 +134,7 @@ The command does three checks in sequence:
 1. Exact match: the two normalized texts are the same.
 2. Lexical match: MinHash and Jaccard similarity on normalized token shingles.
 3. Semantic match: cosine similarity on embeddings. Text chunks only. The
-   model is BAAI/bge-base-en-v1.5 through fastembed, ONNX on CPU.
+   model is BAAI/bge-base-en-v1.5 through fastembed, ONNX on CPU or CUDA.
 
 ## Use
 

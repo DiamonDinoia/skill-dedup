@@ -7,7 +7,7 @@ The `dedup-check` command finds duplicate code and text in the change set of a
 git worktree. It chunks the new and changed lines, then compares each new
 chunk with all chunks of the same repo at the base commit. Three checks run:
 exact match, lexical match (MinHash and Jaccard on token shingles), and
-semantic match (text only, BAAI/bge-base-en-v1.5 through fastembed on CPU).
+semantic match (text only, BAAI/bge-base-en-v1.5 through fastembed on CPU or CUDA).
 
 Run it in the repo root:
 
