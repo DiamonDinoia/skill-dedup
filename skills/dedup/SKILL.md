@@ -36,5 +36,5 @@ is English only.
 
 README.md holds the full use, the decision table and the development commands.
 INSTALL.md at the repo root holds the install steps. The agent follows
-INSTALL.md to install `dedup-check`. hooks/install.md holds the manual hook
-setup.
+INSTALL.md to install `dedup-check`. Section 9.3 of INSTALL.md holds the
+manual hook setup.
