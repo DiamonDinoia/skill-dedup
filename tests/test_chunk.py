@@ -337,6 +337,53 @@ def test_tilde_and_unclosed_fence_text_excludes_fence_lines():
     assert fence.lang == "c"
 
 
+RUST_SRC = """\
+fn pick<'a>(a: &'a str, b: &str) -> &'a str {
+    if a.len() > b.len() {
+        let m = a.trim();
+        let n = m.len();
+        return m;
+    }
+    b
+}
+
+fn braces() -> i32 {
+    let open = '{';
+    let close = '}';
+    let esc = '\\'';
+    let emoji = '\\u{1F600}';
+    let nl = '\\n';
+    open as i32 + close as i32 + esc as i32 + emoji as i32 + nl as i32
+}
+
+fn label() -> i32 {
+    let mut n = 0;
+    'outer: loop {
+        n += 1;
+        if n > 3 {
+            break 'outer;
+        }
+    }
+    n
+}
+"""
+
+def test_rust_lifetimes_and_labels_do_not_split_functions():
+    chunks = chunk_file("m.rs", RUST_SRC)
+    lines = RUST_SRC.splitlines()
+    assert spans(chunks) == [
+        (1, 8, "code", "rust"),     # pick: lifetime ticks must not swallow the '{'
+        (10, 17, "code", "rust"),   # braces: char literals are stripped
+        (19, 28, "code", "rust"),   # label: 'outer must not open a string
+    ]
+    for c in chunks:
+        assert c.text == "\n".join(lines[c.start - 1:c.end])
+
+def test_rust_char_literal_brace_is_not_counted():
+    chunks = chunk_file("m.rs", RUST_SRC)
+    braces = next(c for c in chunks if "fn braces" in c.text)
+    assert (braces.start, braces.end) == (10, 17)  # one whole-function chunk
+
 def test_r1_and_coverage_on_stdlib():
     import importlib.util
 

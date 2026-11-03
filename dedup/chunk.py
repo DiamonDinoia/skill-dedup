@@ -141,10 +141,13 @@ def _chunk_python(path: str, text: str, lines: list[str]) -> list[Chunk]:
     return chunks
 
 
-def _clean_lines(lines: list[str]) -> list[str]:
+_CHAR_LIT_RE = re.compile(r"'(?:\\u\{[0-9a-fA-F]{1,6}\}|\\.|[^\\'])'")
+
+def _clean_lines(lines: list[str], lang: str) -> list[str]:
     # shortcut: no raw strings, template literals, or line continuations;
     # upgrade to a real lexer if brace chunks misfire on those.
     # shortcut: JS/TS regex literals (for example `/}/g`) are not lexed, so a brace inside one can move a chunk boundary; upgrade with a regex-literal rule if JS repos show it.
+    # shortcut: C/C++ multi-char literals (for example `'abcd'`) are not stripped whole; upgrade if FourCC-style constants hide braces.
     out = []
     in_block = False
     for line in lines:
@@ -167,6 +170,10 @@ def _clean_lines(lines: list[str]) -> list[str]:
                 in_block = True
                 i += 2
                 continue
+            if c == "'" and lang in ("c", "cpp", "rust") and not _CHAR_LIT_RE.match(line, i):
+                buf.append(c)  # Rust lifetime/label or C/C++ digit separator
+                i += 1
+                continue
             if c in "\"'":
                 i += 1
                 while i < n:
@@ -185,7 +192,7 @@ def _clean_lines(lines: list[str]) -> list[str]:
 
 
 def _chunk_braces(path: str, lines: list[str], lang: str) -> list[Chunk]:
-    clean = _clean_lines(lines)
+    clean = _clean_lines(lines, lang)
     chunks = []
     covered = [False] * (len(lines) + 1)  # 1-based
     depth = 0
