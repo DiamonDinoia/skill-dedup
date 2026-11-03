@@ -9,7 +9,7 @@ flag each existing file is backed up to <name>.bak.<utc-timestamp> and
 updated in place. A symlinked file is resolved first: the target is backed
 up and replaced, the symlink stays. Idempotent: re-runs leave exactly one
 dedup Stop entry; the other keys and the hooks of other tools are kept.
-Called by install.sh.
+Called by the agent steps in INSTALL.md.
 """
 import json
 import os
