@@ -30,9 +30,20 @@ CPU build.
    curl -LsSf https://astral.sh/uv/install.sh | sh
    ```
 
-   The installer puts uv in ~/.local/bin. When the install fails, for
-   example when astral.sh is unreachable, take the pip route in step 4.
-   The pip route is CPU only.
+   The installer puts uv in ~/.local/bin. When the curl command is
+   denied or curl is missing, download the uv binary from the GitHub
+   release with python3 urllib instead:
+
+   ```
+   python3 -c "import urllib.request,sys; urllib.request.urlretrieve(sys.argv[1],sys.argv[2])" https://github.com/astral-sh/uv/releases/latest/download/uv-x86_64-unknown-linux-gnu.tar.gz /tmp/uv.tgz && tar -xzf /tmp/uv.tgz -C /tmp && install -D /tmp/uv-x86_64-unknown-linux-gnu/uv ~/.local/bin/uv
+   ```
+
+   The asset name is for x86_64 Linux. For aarch64 Linux use
+   `uv-aarch64-unknown-linux-gnu.tar.gz` and change the
+   `uv-x86_64-unknown-linux-gnu` path in the command to match it. For
+   other platforms take the matching asset name from
+   https://github.com/astral-sh/uv/releases. When the install still
+   fails, take the pip route in step 4. The pip route is CPU only.
 4. Pip route only. Check that python3 can create a venv.
 
    ```
@@ -51,7 +62,8 @@ git clone https://github.com/DiamonDinoia/skill-dedup
 cd skill-dedup
 ```
 
-Run all later commands from the clone root.
+Run all later commands from the clone root. When the repo is already
+cloned, skip the clone and use its path as REPO_DIR.
 
 ## 3. Set the paths
 
@@ -137,8 +149,8 @@ When any install above fails because onnxruntime or fastembed has no wheel
 for the running Python, rerun the uv command with `--python 3.13`. uv
 downloads Python 3.13 on first use. On the pip route, make the venv with
 `python3.13` or `python3.12` when one exists. When neither exists, install
-uv with `curl -LsSf https://astral.sh/uv/install.sh | sh` and take the uv
-route.
+uv with `curl -LsSf https://astral.sh/uv/install.sh | sh` (or the
+python3 urllib fallback from step 3) and take the uv route.
 
 A manual install is the same two routes from the clone root: `uv tool install .`
 or the venv commands above.
@@ -284,22 +296,28 @@ their backups.
 
 The Stop hook is optional. The agent asks the user whether to install it and
 states the cost in one sentence. It runs dedup-check after every agent turn,
-and one run on a 21,873-file repo exceeds the 570 s timeout on CPU. When the
-agent cannot ask, it skips the hook and its final message to the user names
-the skip and the exact command that installs it later:
+and one run on a large repo can exceed the 570 s timeout on CPU. When the run
+cannot receive an answer, such as `claude -p` or `codex exec`, skip the
+question and go straight to the skip and the named command for installing
+it later:
 `python3 "$REPO_DIR/scripts/apply_hooks.py" "$STOP_HOOK"`.
 
-Codex skips untrusted hooks. After the apply_hooks.py merge, tell the user
-this, for Codex only: Codex records trust against the hook's hash and skips
-new or changed hooks until trusted. The source is
-https://developers.openai.com/codex/hooks: "Before a non-managed hook can
-run, Codex requires you to review and trust the exact hook definition. Codex
-records trust against the hook's current hash, so new or changed hooks are
-marked for review and skipped until trusted." The user trusts it by starting
-Codex once and choosing "Trust all and continue" at the hooks review, or with
-`/hooks`. `codex exec --dangerously-bypass-hook-trust` runs it without stored
-trust for one invocation. The agent tells the user this step. It does not
-edit config.toml itself.
+Wire the Stop hook only after dedup-check is on PATH. When the CLI
+install is blocked, state the blocker and keep the hook install command
+in the final message even if the user answered yes.
+
+Codex skips untrusted hooks. After the apply_hooks.py merge, the agent
+must relay all three of these facts to the user, for Codex only:
+
+1. Codex records trust against the hook's hash and skips a new or
+   changed hook until it is trusted. The source is
+   https://developers.openai.com/codex/hooks.
+2. The user trusts the hook at the startup review by choosing
+   "Trust all and continue", or with `/hooks`.
+3. `codex exec --dangerously-bypass-hook-trust` runs the hook without
+   stored trust for one invocation.
+
+The agent does not edit config.toml itself.
 
 ### 9.3 Manual merge, fallback
 
@@ -319,8 +337,34 @@ Use this fallback when the script cannot edit the harness files. Replace
 
 1. `command -v dedup-check` prints one path.
 2. `command -v hermes-prereview` prints one path.
-3. Run `dedup-check` in a git repo with a change set. It exits 0 and prints one
-   line for each result.
+3. Run the seeded check in a scratch git repo. It exits 0 and prints a
+   line ending in `exact 1.000 BLOCK` or `lexical 1.000 BLOCK`.
+
+```
+D=$(mktemp -d)
+cd "$D"
+git init -q
+git config user.name tester
+git config user.email tester@example.com
+cat > a.py <<'EOF'
+def word_frequencies(text):
+    words = text.lower().split()
+    counts = {}
+    for word in words:
+        if word in counts:
+            counts[word] += 1
+        else:
+            counts[word] = 1
+    ranked = sorted(counts.items(), key=lambda kv: kv[1], reverse=True)
+    limit = 10
+    top = ranked[:limit]
+    return dict(top)
+EOF
+git add a.py
+git commit -q -m seed
+cp a.py b.py
+dedup-check --repo "$D"
+```
 4. When the Stop hook was installed, send one Stop event JSON to stop_hook.py
    on stdin and check the exit code and stdout.
 
