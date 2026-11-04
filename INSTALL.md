@@ -282,10 +282,24 @@ in a writable directory is still replaced. Its backup keeps the content. When
 a write of a later file fails, one stderr line names the updated files and
 their backups.
 
-The Stop hook is optional and not recommended on big repos. It runs the check
-after every agent turn. One run on a 21,873-file repo takes longer than the
-570 s timeout on CPU. Install it only on small repos, or when the `gpu` extra
-is in use.
+The Stop hook is optional. The agent asks the user whether to install it and
+states the cost in one sentence. It runs dedup-check after every agent turn,
+and one run on a 21,873-file repo exceeds the 570 s timeout on CPU. When the
+agent cannot ask, it skips the hook and its final message to the user names
+the skip and the exact command that installs it later:
+`python3 "$REPO_DIR/scripts/apply_hooks.py" "$STOP_HOOK"`.
+
+Codex skips untrusted hooks. After the apply_hooks.py merge, tell the user
+this, for Codex only: Codex records trust against the hook's hash and skips
+new or changed hooks until trusted. The source is
+https://developers.openai.com/codex/hooks: "Before a non-managed hook can
+run, Codex requires you to review and trust the exact hook definition. Codex
+records trust against the hook's current hash, so new or changed hooks are
+marked for review and skipped until trusted." The user trusts it by starting
+Codex once and choosing "Trust all and continue" at the hooks review, or with
+`/hooks`. `codex exec --dangerously-bypass-hook-trust` runs it without stored
+trust for one invocation. The agent tells the user this step. It does not
+edit config.toml itself.
 
 ### 9.3 Manual merge, fallback
 
@@ -295,8 +309,9 @@ Use this fallback when the script cannot edit the harness files. Replace
 1. Claude Code: merge the Stop entry of hooks/claude-settings.json into
    ~/.claude/settings.json under "hooks". Keep existing entries.
 2. Codex: merge the Stop entry of hooks/codex-hooks.json into
-   ~/.codex/hooks.json under "hooks". Keep existing entries. Codex will ask to
-   trust the changed file on next start.
+   ~/.codex/hooks.json under "hooks". Keep existing entries. Codex marks the
+   changed hook for review and skips it until trusted. Trust it at the hooks
+   review, choose "Trust all and continue" on next start, or use `/hooks`.
 3. The snippets only add a Stop hook that runs stop_hook.py with a 600 s
    timeout. They do not remove other hooks.
 
