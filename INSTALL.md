@@ -23,17 +23,26 @@ CPU build.
    report it. The uv route brings its own Python, so do not stop there.
    Only the hooks need this python3 on the uv route. Section 6 has the
    warning for that case.
-3. Check that python3 can create a venv. Skip this check when uv is on PATH.
+3. Check uv. Run `command -v uv`. With uv the install uses `uv tool install`.
+   Without uv, install uv for the current user:
+
+   ```
+   curl -LsSf https://astral.sh/uv/install.sh | sh
+   ```
+
+   The installer puts uv in ~/.local/bin. When the install fails, for
+   example when astral.sh is unreachable, take the pip route in step 4.
+   The pip route is CPU only.
+4. Pip route only. Check that python3 can create a venv.
 
    ```
    python3 -c 'import ensurepip, venv'
    ```
 
    A non-zero exit means the python3-venv package is missing. On Debian and
-   Ubuntu install it with `apt install python3-venv`. Stop and report.
-4. Check uv. Run `command -v uv`. With uv the install uses `uv tool install`.
-   Without uv step 5 makes a venv with pip. The pip route is CPU only.
-5. Check the GPU driver only on a host with an NVIDIA GPU. See step 4.
+   Ubuntu install it with `apt install python3-venv` when the user is root
+   or has sudo. When neither is available, stop and report.
+5. Check the GPU driver only on a host with an NVIDIA GPU. See step 3.
 
 ## 2. Get the source
 
@@ -128,7 +137,8 @@ When any install above fails because onnxruntime or fastembed has no wheel
 for the running Python, rerun the uv command with `--python 3.13`. uv
 downloads Python 3.13 on first use. On the pip route, make the venv with
 `python3.13` or `python3.12` when one exists. When neither exists, install
-uv and take the uv route.
+uv with `curl -LsSf https://astral.sh/uv/install.sh | sh` and take the uv
+route.
 
 A manual install is the same two routes from the clone root: `uv tool install .`
 or the venv commands above.
