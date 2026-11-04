@@ -277,8 +277,16 @@ the entry for ~/.codex/hooks.json and it has `--harness codex` on the command.
 Codex drops Stop output with hookSpecificOutput, so the hook prints the Codex
 shape only with that flag.
 
-Then merge the entries with the script. A script merge with backups is safer
-than a hand edit.
+The Stop hook is optional. The agent asks the user whether to install it and
+states the cost in one sentence. It runs dedup-check after every agent turn,
+and one run on a 21,873-file repo exceeds the 570 s timeout on CPU. On a yes,
+run the merge below. On a no, skip it. When the run cannot receive an answer,
+such as `claude -p` or `codex exec`, skip the question and the merge, and name
+the install command in the final message:
+`python3 "$REPO_DIR/scripts/apply_hooks.py" "$STOP_HOOK"`.
+
+Then merge the entries with the script on a yes. A script merge with backups
+is safer than a hand edit.
 
 ```
 python3 "$REPO_DIR/scripts/apply_hooks.py" "$STOP_HOOK"
@@ -294,14 +302,6 @@ in a writable directory is still replaced. Its backup keeps the content. When
 a write of a later file fails, one stderr line names the updated files and
 their backups.
 
-The Stop hook is optional. The agent asks the user whether to install it and
-states the cost in one sentence. It runs dedup-check after every agent turn,
-and one run on a large repo can exceed the 570 s timeout on CPU. When the run
-cannot receive an answer, such as `claude -p` or `codex exec`, skip the
-question and go straight to the skip and the named command for installing
-it later:
-`python3 "$REPO_DIR/scripts/apply_hooks.py" "$STOP_HOOK"`.
-
 Wire the Stop hook only after dedup-check is on PATH. When the CLI
 install is blocked, state the blocker and keep the hook install command
 in the final message even if the user answered yes.
@@ -312,8 +312,10 @@ must relay all three of these facts to the user, for Codex only:
 1. Codex records trust against the hook's hash and skips a new or
    changed hook until it is trusted. The source is
    https://developers.openai.com/codex/hooks.
-2. The user trusts the hook at the startup review by choosing
-   "Trust all and continue", or with `/hooks`.
+2. The docs page says to open /hooks to review and trust hooks. At the next
+   interactive start, if the hook needs review, Codex prints a warning that
+   tells you to open /hooks. The startup dialog we probed offers the option
+   "Trust all and continue".
 3. `codex exec --dangerously-bypass-hook-trust` runs the hook without
    stored trust for one invocation.
 
@@ -328,8 +330,10 @@ Use this fallback when the script cannot edit the harness files. Replace
    ~/.claude/settings.json under "hooks". Keep existing entries.
 2. Codex: merge the Stop entry of hooks/codex-hooks.json into
    ~/.codex/hooks.json under "hooks". Keep existing entries. Codex marks the
-   changed hook for review and skips it until trusted. Trust it at the hooks
-   review, choose "Trust all and continue" on next start, or use `/hooks`.
+   changed hook for review and skips it until trusted. The docs page says to
+   open /hooks to trust it, and notes Codex prints a warning at the next
+   interactive start that tells you to open /hooks. The startup dialog we
+   probed offers "Trust all and continue".
 3. The snippets only add a Stop hook that runs stop_hook.py with a 600 s
    timeout. They do not remove other hooks.
 
