@@ -124,6 +124,12 @@ mkdir -p "$LOCAL_BIN"
 ln -sf "$VENV/bin/dedup-check" "$LOCAL_BIN/dedup-check"
 ```
 
+When any install above fails because onnxruntime or fastembed has no wheel
+for the running Python, rerun the uv command with `--python 3.13`. uv
+downloads Python 3.13 on first use. On the pip route, make the venv with
+`python3.13` or `python3.12` when one exists. When neither exists, install
+uv and take the uv route.
+
 A manual install is the same two routes from the clone root: `uv tool install .`
 or the venv commands above.
 
