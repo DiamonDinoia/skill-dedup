@@ -4,22 +4,25 @@ This file gives an agent the full install. Run the steps in order and adapt
 them to the host. Each command comes from the install script that this file
 replaces. Keep the values as they are.
 
-The old script had four flags. Each one is a choice in this file: `--apply`,
-`--stop-hook`, `--no-model` and `--cpu`.
+The old script had four flags. Each one is a choice in this file: apply the
+Hermes patch, install the Stop hook, skip the model download and force the
+CPU build.
 
 ## 1. Check the host
 
 1. Check that HOME is set. Run `echo "$HOME"`. An empty answer means HOME is
    not set. Export HOME and stop.
-2. Check python3. Run `command -v python3`. The install and the hooks need
-   python3 3.11 or later on PATH. Check the version.
+2. Check python3. Run `command -v python3`. Check the version.
 
    ```
    python3 -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 11) else 1)'
    ```
 
-   A non-zero exit means the oldest python3 on PATH is too old. Stop and
-   report it.
+   The pip route needs python3 3.11 or later on PATH. On that route a
+   non-zero exit means the oldest python3 on PATH is too old. Stop and
+   report it. The uv route brings its own Python, so do not stop there.
+   Only the hooks need this python3 on the uv route. Section 6 has the
+   warning for that case.
 3. Check that python3 can create a venv. Skip this check when uv is on PATH.
 
    ```
@@ -76,7 +79,7 @@ is 580 or newer. The check needs a working GPU, not only the binary. 580 is
 the NVIDIA minimum for CUDA 13.x on Linux x86_64, from the CUDA Toolkit
 release notes. A driver major below 580 means the CPU build and one stderr
 line. A driver version that is not a number means the CPU build and one stderr
-line. Choose the CPU build by hand with the `--cpu` choice when the GPU is not
+line. Force the CPU build by hand when the GPU is not
 wanted. The pip route is CPU only.
 
 At run time dedup/embed.py checks onnxruntime.get_available_providers(). With
@@ -163,7 +166,7 @@ DEDUP_CHECK=$LOCAL_BIN/dedup-check
 "$DEDUP_CHECK" --fetch-model
 ```
 
-Skip the download with the `--no-model` choice on an offline host. Run
+Skip the download on an offline host. Run
 `dedup-check --fetch-model` later to get the model. When the model cannot load,
 the command prints one stderr message and goes on with lexical checks only.
 
@@ -179,7 +182,7 @@ the command that prints them. The full shoot-out is in
 
 Both steps are optional. Nothing else in this file edits a harness file.
 
-### 9.1 The `--apply` step, Hermes
+### 9.1 Apply the Hermes patch
 
 The patch to ~/.local/bin/hermes-adversarial-review makes the review run
 hermes-prereview once before the review and append its findings to the review
@@ -233,7 +236,7 @@ Apply the patch in one of four states.
    `skip hermes patch: patch does not apply to $REVIEW` and leave the file
    alone.
 
-### 9.2 The `--stop-hook` step, Claude Code and Codex
+### 9.2 Install the Stop hook, Claude Code and Codex
 
 First print the two JSON blocks.
 
