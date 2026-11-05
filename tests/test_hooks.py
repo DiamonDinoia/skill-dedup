@@ -16,6 +16,7 @@ PREREVIEW = ROOT / "hooks" / "hermes-prereview"
 
 sys.path.insert(0, str(ROOT / "hooks"))
 import dedup_contract  # noqa: E402  (hook scripts are not a package)
+import stop_hook  # noqa: E402
 
 CLAUDE_EVENT = {"session_id": "abc", "cwd": "/repo", "hook_event_name": "Stop",
                 "stop_hook_active": False, "last_assistant_message": "done"}
@@ -483,3 +484,30 @@ def test_patch_prereview_timeout_warns_and_continues(tmp_path, patched_review):
 def test_live_review_patch_applies_and_blocking_prereview_does_not_exit_4(tmp_path, patched_live_review):
     p = run_review(patched_live_review, tmp_path, prereview_rc=3, timeout=120)
     assert p.returncode != 4
+
+
+# dedup-check must resolve in ~/.local/bin even when the session PATH lacks
+# it: a hook runs in a session started before the login that fixed PATH.
+def test_find_dedup_check_uses_local_bin_when_off_path(monkeypatch, tmp_path):
+    exe = tmp_path / ".local" / "bin" / "dedup-check"
+    exe.parent.mkdir(parents=True)
+    exe.write_text("#!/bin/sh\nexit 0\n")
+    exe.chmod(0o755)
+    monkeypatch.delenv("DEDUP_CHECK", raising=False)
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setattr(stop_hook.shutil, "which", lambda name: None)
+    assert stop_hook.find_dedup_check() == str(exe)
+
+
+def test_stop_hook_runs_local_bin_dedup_check_off_path(tmp_path):
+    home = tmp_path / "home"
+    exe = home / ".local" / "bin" / "dedup-check"
+    exe.parent.mkdir(parents=True)
+    body = json.dumps(EMPTY)
+    exe.write_text(f"#!/bin/sh\nprintf '%s\\n' '{body}'\n")
+    exe.chmod(0o755)
+    env = {"HOME": str(home), "PATH": str(tmp_path / "nopath")}
+    p = subprocess.run([sys.executable, str(STOP_HOOK)], input=json.dumps(CLAUDE_EVENT),
+                       capture_output=True, text=True, env=env)
+    out = stdout_json(p)
+    assert out == {} and "Duplicate check skipped" not in p.stdout

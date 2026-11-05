@@ -17,8 +17,10 @@ A dedup-check error or timeout never blocks; it becomes one advice line.
 import argparse
 import json
 import os
+import shutil
 import subprocess
 import sys
+from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 from dedup_contract import validate
@@ -55,6 +57,16 @@ def listing(findings):
     return "\n".join(lines)
 
 
+def find_dedup_check():
+    # Order: DEDUP_CHECK (tests), PATH, then ~/.local/bin. A hook runs in the
+    # session env, which can predate the login that put ~/.local/bin on PATH.
+    found = os.environ.get("DEDUP_CHECK") or shutil.which("dedup-check")
+    if found:
+        return found
+    local = Path.home() / ".local" / "bin" / "dedup-check"
+    return str(local) if local.is_file() else "dedup-check"
+
+
 def parse_findings(out):
     """Parse and validate dedup-check output via the shared contract. Returns
     (findings, None) or (None, error): a contract break must never break the hook."""
@@ -79,7 +91,7 @@ def main():
     except (ValueError, EOFError):
         raw = None
     event = raw if isinstance(raw, dict) else {}
-    cmd = [os.environ.get("DEDUP_CHECK", "dedup-check"), "--json"]
+    cmd = [find_dedup_check(), "--json"]
     # Claude Code and Codex send the session cwd in the Stop event; run there.
     cwd = event.get("cwd")
     if not isinstance(cwd, str) or not cwd or not os.path.isdir(cwd):

@@ -7,12 +7,15 @@ Usage: apply_hooks.py [--print] /abs/path/to/hooks/stop_hook.py
 the Claude block first, then the Codex block (--harness codex). With no
 flag each existing file is backed up to <name>.bak.<utc-timestamp> and
 updated in place. A symlinked file is resolved first: the target is backed
-up and replaced, the symlink stays. Idempotent: re-runs leave exactly one
-dedup Stop entry; the other keys and the hooks of other tools are kept.
+up and replaced, the symlink stays. Idempotent: a re-run replaces the entry
+it installed and leaves exactly one dedup Stop entry, even when a hand edit
+added a PATH= prefix. An entry changed in other ways stays as a second dedup
+entry. The other keys and the hooks of other tools are kept.
 Called by the agent steps in INSTALL.md.
 """
 import json
 import os
+import re
 import shlex
 import shutil
 import stat
@@ -37,17 +40,28 @@ def dedup_group(command: str) -> dict:
     }]}
 
 
+def strip_env(tokens: list) -> list:
+    # Leading NAME=value words are env assignments, not command words.
+    while tokens and re.match(r"[A-Za-z_][A-Za-z0-9_]*=", tokens[0]):
+        tokens = tokens[1:]
+    return tokens
+
+
 def is_ours(hook, command: str) -> bool:
     # Compare the split words, not the strings: an older entry may quote our
     # path differently. A substring match would claim another tool's own
-    # stop_hook.py and drop it.
+    # stop_hook.py and drop it. Env assignments before the command are
+    # ignored on both sides: a hand edit may prefix PATH=... to fix lookup.
+    # The remaining words must still match exactly, so another tool's
+    # stop_hook.py is never ours.
     if not isinstance(hook, dict):
         return False
     value = hook.get("command")
     if not isinstance(value, str):
         return False
     try:
-        return shlex.split(value) == shlex.split(command)
+        return (strip_env(shlex.split(value))
+                == strip_env(shlex.split(command)))
     except ValueError:
         return False
 

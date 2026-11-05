@@ -294,7 +294,10 @@ python3 "$REPO_DIR/scripts/apply_hooks.py" "$STOP_HOOK"
 
 The script backs up each harness file first. The backup has the same file name
 plus `.bak.` and a UTC timestamp. The merge keeps the other keys and the hooks
-of other tools, and is idempotent. A symlinked file is resolved first: the file
+of other tools. A re-run replaces the entry that it installed. This also
+applies to a hand edit with a `PATH=` prefix. An entry that changed in other
+ways stays as a second dedup entry. Delete it first when the hook must run
+once. A symlinked file is resolved first: the file
 behind the link is updated and the link stays. A dangling symlink at
 ~/.claude/settings.json gets its missing target created. A new harness file
 gets mode 0644, an existing file keeps its mode. A read-only 0444 target file

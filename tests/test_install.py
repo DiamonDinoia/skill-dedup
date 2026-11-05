@@ -11,6 +11,9 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 APPLY_HOOKS = ROOT / "scripts" / "apply_hooks.py"
 
+sys.path.insert(0, str(ROOT / "scripts"))
+import apply_hooks  # noqa: E402  (scripts are not a package)
+
 
 def base_env(home: Path) -> dict:
     env = {k: v for k, v in os.environ.items() if k != "XDG_DATA_HOME"}
@@ -80,3 +83,17 @@ def test_apply_hooks_without_home_exits_1_and_writes_nothing(tmp_path, home_valu
     assert p.stderr == "apply_hooks: HOME is not set\n"
     assert not (tmp_path / ".claude").exists()
     assert not (tmp_path / ".codex").exists()
+
+
+# A hand edit that prefixes PATH=... to make dedup-check findable is still
+# our entry: a merge re-run must replace it, not add a second one.
+def test_is_ours_accepts_leading_env_assignments():
+    hook = {"command": "PATH=$HOME/.local/bin:$PATH python3 /x/stop_hook.py"}
+    assert apply_hooks.is_ours(hook, "python3 /x/stop_hook.py") is True
+    assert apply_hooks.is_ours(hook, "python3 /x/stop_hook.py --harness codex") is False
+
+def test_is_ours_still_rejects_another_tool():
+    hook = {"command": "PATH=$HOME/.local/bin:$PATH python3 /other/stop_hook.py"}
+    assert apply_hooks.is_ours(hook, "python3 /x/stop_hook.py") is False
+    trailing = {"command": "python3 /x/stop_hook.py FOO=bar"}
+    assert apply_hooks.is_ours(trailing, "python3 /x/stop_hook.py") is False
