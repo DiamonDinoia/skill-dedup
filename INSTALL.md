@@ -295,7 +295,7 @@ python3 "$REPO_DIR/scripts/apply_hooks.py" "$STOP_HOOK"
 The script backs up each harness file first. The backup has the same file name
 plus `.bak.` and a UTC timestamp. The merge keeps the other keys and the hooks
 of other tools. A re-run replaces the entry that it installed. This also
-applies to a hand edit with a `PATH=` prefix. An entry that changed in other
+applies to a hand edit with an env prefix such as `PATH=`: any NAME=value assignment before the command. An entry that changed in other
 ways stays as a second dedup entry. Delete it first when the hook must run
 once. A symlinked file is resolved first: the file
 behind the link is updated and the link stays. A dangling symlink at

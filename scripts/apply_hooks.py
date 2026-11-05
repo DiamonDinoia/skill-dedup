@@ -9,7 +9,7 @@ flag each existing file is backed up to <name>.bak.<utc-timestamp> and
 updated in place. A symlinked file is resolved first: the target is backed
 up and replaced, the symlink stays. Idempotent: a re-run replaces the entry
 it installed and leaves exactly one dedup Stop entry, even when a hand edit
-added a PATH= prefix. An entry changed in other ways stays as a second dedup
+added an env prefix such as PATH=: any NAME=value assignment before the command. An entry changed in other ways stays as a second dedup
 entry. The other keys and the hooks of other tools are kept.
 Called by the agent steps in INSTALL.md.
 """
